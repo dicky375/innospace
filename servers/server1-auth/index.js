@@ -1,92 +1,87 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const morgan = require('morgan');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
-const { createConnection } = require('../../shared/config/db');
-const { authenticate } = require('../../shared/middleware/auth');
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+// 1. Setup Environment (Must happen before ANY other internal imports)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+
+import express from 'express';
+import cors from 'cors';
+import morgan from 'morgan';
+import bcrypt from 'bcryptjs';
+
+// Internal Imports
+import { createConnection } from '../../shared/config/db.js';
+import defineUser from './models/user.js';
+import defineRefreshToken from './models/refreshToken.js';
+import authRoutes from './routes/auth.routes.js';
+import userRoutes from './routes/user.routes.js';
 
 const app = express();
 const PORT = process.env.SERVER1_PORT || 3001;
 
-app.use(cors()); app.use(express.json()); app.use(morgan('dev'));
+// 2. Middleware
+app.use(cors());
+app.use(express.json());
+app.use(morgan('dev'));
 
-const db = createConnection(process.env.MONGO_URI_AUTH, 'Server1 (auth)');
+// 3. Database & Models Initialization
+const sequelize = createConnection({
+  name: process.env.DB_AUTH_NAME,
+  user: process.env.DB_AUTH_USER,
+  pass: process.env.DB_AUTH_PASS,
+  host: process.env.DB_AUTH_HOST,
+  port: process.env.DB_AUTH_PORT,
+}, 'Server1 (auth)');
 
-const userSchema = new mongoose.Schema({
-  name:       { type: String, required: true, trim: true },
-  email:      { type: String, required: true, unique: true, lowercase: true },
-  password:   { type: String, required: true },
-  phone:      { type: String },
-  role:       { type: String, enum: ['intern', 'user', 'admin'], default: 'user' },
-  referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-  isActive:   { type: Boolean, default: true },
-}, { timestamps: true });
+const User = defineUser(sequelize);
+const RefreshToken = defineRefreshToken(sequelize);
 
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
-  next();
-});
+// 4. Define Relationships
+User.hasMany(RefreshToken, { foreignKey: 'user_id', onDelete: 'CASCADE' });
+RefreshToken.belongsTo(User, { foreignKey: 'user_id' });
 
-const User = db.model('User', userSchema);
+// 5. Password Hashing Hooks
+const hashPassword = async (user) => {
+  if (user.changed('password')) {
+    user.password = await bcrypt.hash(user.password, 12);
+  }
+};
 
-function signToken(user) {
-  return jwt.sign(
-    { id: user._id, email: user.email, role: user.role, name: user.name },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-  );
-}
+User.beforeCreate(hashPassword);
+User.beforeUpdate(hashPassword);
 
-// POST /api/auth/register
-app.post('/api/auth/register', async (req, res) => {
+// 6. Routes
+app.use('/api/auth', authRoutes(User, RefreshToken));
+app.use('/api/users', userRoutes(User));
+
+// Health Check
+app.get('/health', (_, res) => res.json({ 
+  service: 'auth-service', 
+  status: 'UP', 
+  db: sequelize.options.database 
+}));
+
+// 7. Server Start Logic
+const startServer = async () => {
   try {
-    const { name, email, password, phone, role } = req.body;
-    if (!name || !email || !password)
-      return res.status(400).json({ error: 'name, email and password required' });
-
-    if (await User.findOne({ email }))
-      return res.status(409).json({ error: 'Email already registered' });
-
-    const safeRole = role === 'intern' ? 'intern' : 'user';
-    const user = await User.create({ name, email, password, phone, role: safeRole });
-    res.status(201).json({ token: signToken(user), user: { id: user._id, name, email, role: safeRole } });
+    await sequelize.authenticate();
+    // Use { alter: true } only in development
+    await sequelize.sync({ alter: process.env.NODE_ENV === 'development' });
+    
+    app.listen(PORT, () => {
+      console.log(`\n🔐 AUTH SERVICE ACTIVE`);
+      console.log(`-----------------------------------`);
+      console.log(`URL: http://localhost:${PORT}`);
+      console.log(`DB:  ${process.env.DB_AUTH_NAME}`);
+      console.log(`JWT: ${process.env.JWT_ACCESS_SECRET ? 'Configured ✅' : 'MISSING ❌'}`);
+      console.log(`-----------------------------------\n`);
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('Core startup failed:', err.message);
+    process.exit(1);
   }
-});
+};
 
-// POST /api/auth/login
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password)))
-      return res.status(401).json({ error: 'Invalid credentials' });
-    if (!user.isActive)
-      return res.status(403).json({ error: 'Account deactivated' });
-    res.json({ token: signToken(user), user: { id: user._id, name: user.name, email, role: user.role } });
-  } catch {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// GET /api/users/me
-app.get('/api/users/me', authenticate, async (req, res) => {
-  const user = await User.findById(req.user.id).select('-password');
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json(user);
-});
-
-// GET /api/users/:id
-app.get('/api/users/:id', authenticate, async (req, res) => {
-  const user = await User.findById(req.params.id).select('-password');
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json(user);
-});
-
-app.get('/health', (_, res) => res.json({ server: 'server1-auth', status: 'ok' }));
-app.listen(PORT, () => console.log(`[Server 1 — Auth] running on port ${PORT}`));
+startServer();

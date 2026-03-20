@@ -1,18 +1,50 @@
-const mongoose = require('mongoose');
+import { Sequelize } from 'sequelize';
 
-function createConnection(uri, label) {
-  const conn = mongoose.createConnection(uri, {
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
+/**
+ * Creates a unique Sequelize connection for a microservice.
+ * @param {Object} config - DB credentials (name, user, pass, host, port)
+ * @param {string} label - The name of the service for logging
+ */
+export function createConnection(config, label) {
+  // Defensive check: Ensure we don't try to connect with undefined values
+  if (!config.name || !config.user) {
+    console.error(`[PostgreSQL] ✗ ${label} failed: Missing DB credentials in .env`);
+    return null;
+  }
+
+  const sequelize = new Sequelize(config.name, config.user, config.pass, {
+    host: config.host || 'localhost',
+    port: config.port || 5432,
+    dialect: 'postgres',
+    logging: false, // Set to console.log during debugging if needed
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    },
+    // Addition: Ensure timestamps are handled consistently across services
+    define: {
+      timestamps: true,
+      underscored: true,
+    }
   });
 
-  conn.on('connected', () => console.log(`[MongoDB] ✓ ${label} connected`));
-  conn.on('error', (err) => console.error(`[MongoDB] ✗ ${label}:`, err.message));
-  conn.on('disconnected', () => console.warn(`[MongoDB] ⚠ ${label} disconnected`));
+  // Verification
+  sequelize
+    .authenticate()
+    .then(() => console.log(`[PostgreSQL] ✓ ${label} connected → ${config.name}`))
+    .catch((err) => console.error(`[PostgreSQL] ✗ ${label} error:`, err.message));
 
-  process.on('SIGINT', async () => { await conn.close(); });
+  // Graceful Shutdown
+  process.on('SIGINT', async () => {
+    try {
+      await sequelize.close();
+      console.log(`[PostgreSQL] ${label} connection closed`);
+    } catch (err) {
+      // Avoid hanging on shutdown
+    }
+  });
 
-  return conn;
+  return sequelize;
 }
-
-module.exports = { createConnection };

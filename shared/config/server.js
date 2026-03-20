@@ -1,6 +1,7 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
+dotenv.config();
 
-const SERVER_REGISTRY = [
+export const SERVER_REGISTRY = [
   {
     name: 'server1-auth',
     target: `http://localhost:${process.env.SERVER1_PORT || 3001}`,
@@ -17,5 +18,3 @@ const SERVER_REGISTRY = [
     routes: ['/api/payments', '/api/commissions', '/api/webhook'],
   },
 ];
-
-module.exports = { SERVER_REGISTRY };

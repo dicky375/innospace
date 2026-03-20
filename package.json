@@ -1,14 +1,28 @@
 {
   "name": "innospace",
   "version": "1.0.0",
-  "description": "",
+  "description": "High-availability microservices architecture for hospital procurement",
   "type": "module",
-  "main": "index.js",
+  "main": "load-balancer/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": " npx nodemon src/server.js"
+    "kill-ports": "npx kill-port 3000 3001 3002 3003 || true",
+    "start": "node load-balancer/index.js",
+    "lb": "nodemon load-balancer/index.js",
+    "s1:auth": "nodemon servers/server1-auth/index.js",
+    "s2:reg": "nodemon servers/server2-registration/index.js",
+    "s3:pay": "nodemon servers/server3-payment/old/index.js",
+    "dev": "npm run kill-ports && concurrently -n \"LB,AUTH,REG,PAY\" -c \"magenta,blue,green,yellow\" \"npm run lb\" \"npm run s1:auth\" \"npm run s2:reg\" \"npm run s3:pay\"",
+    "db:migrate": "npx sequelize-cli db:migrate",
+    "db:rollback": "npx sequelize-cli db:migrate:undo"
   },
-  "keywords": [],
+  "keywords": [
+    "microservices",
+    "load-balancer",
+    "node-js",
+    "redis",
+    "express",
+    "paystack"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -20,6 +34,15 @@
     "http-proxy": "^1.18.1",
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.3.0"
+    "morgan": "^1.10.1",
+    "pg": "^8.20.0",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.8"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.1.14",
+    "sequelize-cli": "^6.6.5",
+    "kill-port": "^2.0.1"
   }
 }

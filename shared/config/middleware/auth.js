@@ -1,7 +1,8 @@
-require('dotenv').config();
-const jwt = require('jsonwebtoken');
+import dotenv from 'dotenv';
+dotenv.config();
+import jwt from 'jsonwebtoken';
 
-function authenticate(req, res, next) {
+export function authenticate(req, res, next) {
   const authHeader = req.headers['authorization'];
   if (!authHeader?.startsWith('Bearer '))
     return res.status(401).json({ error: 'Missing or invalid Authorization header' });
@@ -14,16 +15,14 @@ function authenticate(req, res, next) {
   }
 }
 
-function requireIntern(req, res, next) {
+export function requireIntern(req, res, next) {
   if (req.user?.role !== 'intern')
     return res.status(403).json({ error: 'Only interns can perform this action' });
   next();
 }
 
-function requireAdmin(req, res, next) {
+export function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin')
     return res.status(403).json({ error: 'Admin access required' });
   next();
 }
-
-module.exports = { authenticate, requireIntern, requireAdmin };

@@ -1,22 +1,26 @@
-require('dotenv').config();
-const { createClient } = require('redis');
+import { Redis } from 'ioredis';
+import dotenv from 'dotenv';
+dotenv.config();
 
 let client = null;
 
-async function getRedisClient() {
-  if (client && client.isOpen) return client;
-  client = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
-  client.on('error', (err) => console.error('[Redis] Error:', err.message));
+export async function getRedisClient() {
+  if (client) return client;
+
+  client = new Redis(process.env.REDIS_URL, {
+    tls: {},  // required for Redis Cloud
+    maxRetriesPerRequest: 3,
+  });
+
   client.on('connect', () => console.log('[Redis] ✓ Connected'));
-  await client.connect();
+  client.on('error', (err) => console.error('[Redis] Error:', err.message));
+
   return client;
 }
 
-const KEYS = {
+export const KEYS = {
   internBalance: (userId) => `intern:balance:${userId}`,
   leaderboard: () => 'intern:leaderboard',
   programs: () => 'programs:list',
   session: (token) => `session:${token}`,
 };
-
-module.exports = { getRedisClient, KEYS };
