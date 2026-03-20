@@ -76,6 +76,7 @@ export default (User, RefreshToken) => {
         user: { id: user.id, name: user.name, email, role: user.role },
       });
     } catch (err) {
+      console.error('[LOGIN ERROR]', err);
       res.status(500).json({ error: 'Server error' });
     }
   });
