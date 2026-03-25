@@ -8,7 +8,7 @@ export function authenticate(req, res, next) {
     return res.status(401).json({ error: 'Missing or invalid Authorization header' });
 
   try {
-    req.user = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+    req.user = jwt.verify(authHeader.split(' ')[1], process.env.JWT_ACCESS_SECRET);
     next();
   } catch {
     res.status(401).json({ error: 'Token invalid or expired' });
