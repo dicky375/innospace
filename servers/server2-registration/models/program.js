@@ -7,7 +7,7 @@ export default (sequelize) => {
     description: { type: DataTypes.TEXT },
     monthlyFee:  { type: DataTypes.DECIMAL(10, 2), allowNull: false, field: 'monthly_fee' },
     durationMonths: { type: DataTypes.INTEGER, allowNull: false, field: 'duration_months' },
-    type:        { type: DataTypes.ENUM('regular', 'siwes'), defaultValue: 'regular' },
+    type:        { type: DataTypes.ENUM('internship', 'siwes'), defaultValue: 'regular' },
     category:    { type: DataTypes.STRING },
     isActive:    { type: DataTypes.BOOLEAN, defaultValue: true, field: 'is_active' },
   }, { tableName: 'programs', underscored: true });

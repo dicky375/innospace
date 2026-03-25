@@ -39,7 +39,7 @@ export default (Program) => {
       const { title, description, monthlyFee, durationMonths, type, category } = req.body;
       if (!title || !monthlyFee || !durationMonths)
         return res.status(400).json({ error: 'title, monthlyFee and durationMonths are required' });
-      if (!['regular', 'siwes'].includes(type))
+      if (!['internship', 'siwes'].includes(type))
         return res.status(400).json({ error: 'type must be regular or siwes' });
 
       const program = await Program.create({ title, description, monthlyFee, durationMonths, type: type || 'regular', category });
