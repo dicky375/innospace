@@ -8,8 +8,11 @@ export async function getRedisClient() {
   if (client) return client;
 
   client = new Redis(process.env.REDIS_URL, {
-    tls: {},  // required for Redis Cloud
+    tls: {
+      rejectUnauthorized: false,
+    },
     maxRetriesPerRequest: 3,
+    retryStrategy: (times) => Math.min(times * 50, 2000),
   });
 
   client.on('connect', () => console.log('[Redis] ✓ Connected'));
