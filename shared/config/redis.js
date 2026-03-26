@@ -1,26 +1,68 @@
 import { Redis } from 'ioredis';
 import dotenv from 'dotenv';
+
 dotenv.config();
 
 let client = null;
 
+/**
+ * Initializes and returns a singleton Redis client.
+ * Automatically detects if TLS is required based on the URL protocol.
+ */
 export async function getRedisClient() {
   if (client) return client;
 
-  client = new Redis(process.env.REDIS_URL, {
-    tls: {
-      rejectUnauthorized: false,
-    },
-    maxRetriesPerRequest: 3,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-  });
+  const redisUrl = process.env.REDIS_URL;
 
-  client.on('connect', () => console.log('[Redis] ✓ Connected'));
-  client.on('error', (err) => console.error('[Redis] Error:', err.message));
+  // Configuration options for ioredis
+  const redisOptions = {
+    maxRetriesPerRequest: 3,
+    retryStrategy: (times) => {
+      // Exponential backoff with a cap at 2 seconds
+      const delay = Math.min(times * 50, 2000);
+      return delay;
+    },
+    // Dynamically enable TLS if the URL starts with 'rediss://'
+    ...(redisUrl.startsWith('rediss://') && {
+      tls: {
+        rejectUnauthorized: false, // Useful for managed services like Redis Cloud
+      },
+    }),
+  };
+
+  try {
+    client = new Redis(redisUrl, redisOptions);
+
+    // Event Handlers
+    client.on('connect', () => {
+      console.log('[Redis] ✓ Connection established');
+    });
+
+    client.on('ready', () => {
+      console.log('[Redis] ✓ Client ready to receive commands');
+    });
+
+    client.on('error', (err) => {
+      // The error you saw: "packet length too long" usually 
+      // stems from a protocol mismatch (TLS vs Plaintext)
+      console.error('[Redis] ✗ Error:', err.message);
+    });
+
+    client.on('close', () => {
+      console.warn('[Redis] ! Connection closed');
+    });
+
+  } catch (error) {
+    console.error('[Redis] ✗ Failed to initialize client:', error);
+    throw error;
+  }
 
   return client;
 }
 
+/**
+ * Cache Key Generators
+ */
 export const KEYS = {
   internBalance: (userId) => `intern:balance:${userId}`,
   leaderboard: () => 'intern:leaderboard',
