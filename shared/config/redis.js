@@ -14,6 +14,9 @@ export async function getRedisClient() {
 
   const redisUrl = process.env.REDIS_URL;
 
+  console.log('[Redis] Attempting connection to:', redisUrl?.split('@')[1]); // Log host only for safety
+  console.log('[Redis] Protocol detected:', redisUrl?.split(':')[0]);
+
   // Configuration options for ioredis
   const redisOptions = {
     maxRetriesPerRequest: 3,
