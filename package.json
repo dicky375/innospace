@@ -1,7 +1,8 @@
 {
+  
   "name": "innospace",
   "version": "1.0.0",
-  "description": "High-availability microservices architecture for hospital procurement",
+  "description": "High-availability microservices architecture for tech hub reg",
   "type": "module",
   "main": "load-balancer/index.js",
   "scripts": {
@@ -10,7 +11,7 @@
     "lb": "nodemon load-balancer/index.js",
     "s1:auth": "nodemon servers/server1-auth/index.js",
     "s2:reg": "nodemon servers/server2-registration/index.js",
-    "s3:pay": "nodemon servers/server3-payment/old/index.js",
+    "s3:pay": "nodemon servers/server3-payments/index.js",
     "dev": "npm run kill-ports && concurrently -n \"LB,AUTH,REG,PAY\" -c \"magenta,blue,green,yellow\" \"npm run lb\" \"npm run s1:auth\" \"npm run s2:reg\" \"npm run s3:pay\"",
     "db:migrate": "npx sequelize-cli db:migrate",
     "db:rollback": "npx sequelize-cli db:migrate:undo"

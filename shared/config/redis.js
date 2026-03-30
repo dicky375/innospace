@@ -7,47 +7,45 @@ let client = null;
 
 /**
  * Initializes and returns a singleton Redis client.
- * Automatically detects if TLS is required based on the URL protocol.
+ * Note: TLS is disabled here to match the 'redis://' protocol.
  */
 export async function getRedisClient() {
   if (client) return client;
 
   const redisUrl = process.env.REDIS_URL;
 
-  console.log('[Redis] Attempting connection to:', redisUrl?.split('@')[1]); // Log host only for safety
-  console.log('[Redis] Protocol detected:', redisUrl?.split(':')[0]);
+  if (!redisUrl) {
+    throw new Error('[Redis] REDIS_URL is not defined in .env');
+  }
 
-  // Configuration options for ioredis
+  // We remove the 'tls' object entirely. 
+  // If 'tls' is present (even if empty), ioredis will attempt an SSL handshake.
   const redisOptions = {
     maxRetriesPerRequest: 3,
     retryStrategy: (times) => {
-      // Exponential backoff with a cap at 2 seconds
       const delay = Math.min(times * 50, 2000);
       return delay;
     },
-    // Dynamically enable TLS if the URL starts with 'rediss://'
-    ...(redisUrl.startsWith('rediss://') && {
-      tls: {
-        rejectUnauthorized: false, // Useful for managed services like Redis Cloud
-      },
-    }),
+    // Explicitly ensure connectTimeout is sufficient for cloud connections
+    connectTimeout: 10000, 
   };
 
   try {
+    // Create the client
     client = new Redis(redisUrl, redisOptions);
 
-    // Event Handlers
+    // Connection Event Handlers
     client.on('connect', () => {
-      console.log('[Redis] ✓ Connection established');
+      console.log('[Redis] ✓ Socket connected');
     });
 
     client.on('ready', () => {
-      console.log('[Redis] ✓ Client ready to receive commands');
+      console.log('[Redis] ✓ Client ready and authenticated');
     });
 
     client.on('error', (err) => {
-      // The error you saw: "packet length too long" usually 
-      // stems from a protocol mismatch (TLS vs Plaintext)
+      // If you still see "packet length too long", double check your .env 
+      // is not being cached with an old 'rediss://' value.
       console.error('[Redis] ✗ Error:', err.message);
     });
 
@@ -56,15 +54,20 @@ export async function getRedisClient() {
     });
 
   } catch (error) {
-    console.error('[Redis] ✗ Failed to initialize client:', error);
+    console.error('[Redis] ✗ Initialization failed:', error);
     throw error;
   }
 
   return client;
 }
 
+export async function clearProgramsCache() {
+  const redis = await getRedisClient();
+  await redis.del(KEYS.programs());
+  console.log('[Redis] 🗑️ Programs cache cleared');
+}
 /**
- * Cache Key Generators
+ * Standard Cache Keys
  */
 export const KEYS = {
   internBalance: (userId) => `intern:balance:${userId}`,

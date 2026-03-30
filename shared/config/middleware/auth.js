@@ -10,8 +10,10 @@ export function authenticate(req, res, next) {
   try {
     req.user = jwt.verify(authHeader.split(' ')[1], process.env.JWT_ACCESS_SECRET);
     next();
-  } catch {
-    res.status(401).json({ error: 'Token invalid or expired' });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError')
+      return res.status(401).json({ error: 'Access token expired', code: 'TOKEN_EXPIRED' });
+    res.status(401).json({ error: 'Token invalid' });
   }
 }
 
