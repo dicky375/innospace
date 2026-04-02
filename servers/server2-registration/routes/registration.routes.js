@@ -137,6 +137,18 @@ export default (Registration, Program) => {
       res.status(500).json({ error: 'Server error' });
     }
   });
+  // GET /api/registrations/all — admin gets all registrations
+router.get('/all', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const registrations = await Registration.findAll({
+      include: [{ model: Program }],
+      order: [['createdAt', 'DESC']],
+    });
+    res.json(registrations);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
   return router;
 };
