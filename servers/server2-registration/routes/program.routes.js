@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, requireAdmin } from '../../../shared/config/middleware/auth.js';
+import { authenticate, requireAdmin } from '../../../middleware/auth.js';
 import { getRedisClient, KEYS } from '../../../shared/config/redis.js';
 
 const router = Router();

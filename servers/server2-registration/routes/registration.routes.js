@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, requireIntern, requireAdmin } from '../../../shared/config/middleware/auth.js';
+import { authenticate, requireIntern, requireAdmin } from '../../../middleware/auth.js';
 
 const router = Router();
 
