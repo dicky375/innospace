@@ -70,8 +70,8 @@ export async function clearProgramsCache() {
  * Standard Cache Keys
  */
 export const KEYS = {
-  internBalance: (userId) => `intern:balance:${userId}`,
-  leaderboard: () => 'intern:leaderboard',
+  affiliateBalance: (userId) => `affiliate:balance:${userId}`,
+  leaderboard: () => 'affiliate:leaderboard',
   programs: () => 'programs:list',
   session: (token) => `session:${token}`,
 };

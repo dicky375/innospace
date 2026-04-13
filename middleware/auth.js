@@ -17,9 +17,9 @@ export function authenticate(req, res, next) {
   }
 }
 
-export function requireIntern(req, res, next) {
-  if (req.user?.role !== 'intern')
-    return res.status(403).json({ error: 'Only interns can perform this action' });
+export function requireAffiliate(req, res, next) {
+  if (req.user?.role !== 'affiliate')
+    return res.status(403).json({ error: 'Only affilites can perform this action' });
   next();
 }
 

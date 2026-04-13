@@ -8,17 +8,16 @@ import crypto from 'crypto';
 import axios from 'axios';
 import { DataTypes } from 'sequelize';
 
-// ✅ CORRECTED PATHS: Added an extra ../ to reach the root shared folder
 import { createConnection } from '../../../shared/config/db.js';
-import { authenticate, requireIntern } from '../../../shared/config/middleware/auth.js';
+import { authenticate, requireAffiliate } from '../../../middleware/auth.js';
 import { getRedisClient, KEYS } from '../../../shared/config/redis.js';
 
 const app = express();
+// Force 3003 if the env isn't loading correctly
 const PORT = process.env.SERVER3_PORT || 3003;
 const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE || '0.05');
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
-// 1. DATABASE INITIALIZATION
 const sequelize = createConnection({
   name: process.env.DB_PAY_NAME,
   user: process.env.DB_PAY_USER,
@@ -30,7 +29,7 @@ const sequelize = createConnection({
 const Transaction = sequelize.define('Transaction', {
   id:                 { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
   registrationId:     { type: DataTypes.UUID, allowNull: false, field: 'registration_id' },
-  internId:           { type: DataTypes.UUID, allowNull: false, field: 'intern_id' },
+  affiliateId:           { type: DataTypes.UUID, allowNull: false, field: 'affiliate_id' },
   paidUserId:         { type: DataTypes.UUID, allowNull: false, field: 'paid_user_id' },
   amount:             { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   commission:         { type: DataTypes.DECIMAL(10, 2), allowNull: false },
@@ -39,85 +38,97 @@ const Transaction = sequelize.define('Transaction', {
   commissionCredited: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'commission_credited' },
 }, { tableName: 'transactions', underscored: true });
 
-// 2. MIDDLEWARE (Crucial Order)
+app.use(cors());
+// Webhook must come BEFORE express.json() if you use express.raw()
 app.post('/api/webhook/paystack', express.raw({ type: 'application/json' }), async (req, res) => {
-  const hash = crypto
-    .createHmac('sha512', process.env.PAYSTACK_WEBHOOK_SECRET || PAYSTACK_SECRET)
-    .update(req.body)
-    .digest('hex');
+  try {
+    const hash = crypto
+      .createHmac('sha512', process.env.PAYSTACK_WEBHOOK_SECRET || PAYSTACK_SECRET)
+      .update(req.body)
+      .digest('hex');
 
-  if (hash !== req.headers['x-paystack-signature']) {
-    return res.status(401).json({ error: 'Invalid Paystack Signature' });
-  }
+    if (hash !== req.headers['x-paystack-signature']) {
+      return res.status(401).json({ error: 'Invalid Paystack Signature' });
+    }
 
-  const event = JSON.parse(req.body);
-  if (event.event === 'charge.success') {
-    const { reference, metadata, amount } = event.data;
-    await processSuccessfulPayment(reference, metadata.internId, amount / 100, metadata.registrationId);
+    const event = JSON.parse(req.body);
+    if (event.event === 'charge.success') {
+      const { reference, metadata, amount } = event.data;
+      await processSuccessfulPayment(reference, metadata.affiliateId, amount / 100, metadata.registrationId);
+    }
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("[PAY] Webhook Error:", err.message);
+    res.sendStatus(500);
   }
-  res.sendStatus(200);
 });
 
-app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
-// 3. INTERNAL LOGIC HELPERS
-async function processSuccessfulPayment(reference, internId, amount, registrationId) {
-  const txn = await Transaction.findOne({ where: { paystackRef: reference } });
-  if (txn && !txn.commissionCredited) {
-    const commission = parseFloat((amount * COMMISSION_RATE).toFixed(2));
-    const redis = await getRedisClient();
-    
-    await Promise.all([
-      redis.incrbyfloat(KEYS.internBalance(internId), commission),
-      redis.zincrby(KEYS.leaderboard(), commission, internId.toString())
-    ]);
+async function processSuccessfulPayment(reference, affiliateId, amount, registrationId) {
+  try {
+    const txn = await Transaction.findOne({ where: { paystackRef: reference } });
+    if (txn && !txn.commissionCredited) {
+      const commission = parseFloat((amount * COMMISSION_RATE).toFixed(2));
+      const redis = await getRedisClient();
+      
+      await Promise.all([
+        redis.incrbyfloat(KEYS.affiliateBalance(affiliateId), commission),
+        redis.zincrby(KEYS.leaderboard(), commission, affiliateId.toString())
+      ]);
 
-    await txn.update({ commissionCredited: true, paystackStatus: 'success', commission });
+      await txn.update({ commissionCredited: true, paystackStatus: 'success', commission });
 
-    await axios.patch(`http://localhost:${process.env.LOAD_BALANCER_PORT || 3000}/api/registrations/${registrationId}/mark-paid`, {
-      paystackRef: reference
-    }).catch(err => console.error(`[PAY] Failed to notify Reg Service: ${err.message}`));
-    
-    return commission;
+      const lbPort = process.env.LOAD_BALANCER_PORT || 3000;
+      await axios.patch(`http://localhost:${lbPort}/api/registrations/${registrationId}/mark-paid`, {
+        paystackRef: reference
+      });
+      
+      return commission;
+    }
+  } catch (err) {
+    console.error(`[PAY] Payment processing failed: ${err.message}`);
   }
 }
 
-// 4. API ROUTES
-app.post('/api/payments/initialize', authenticate, requireIntern, async (req, res) => {
+app.post('/api/payments/initialize', authenticate, requireAffiliate, async (req, res) => {
   try {
     const { registrationId, paidUserEmail, amount, paidUserId } = req.body;
     
     const paystackRes = await axios.post(
       'https://api.paystack.co/transaction/initialize',
-      { email: paidUserEmail, amount: amount * 100, metadata: { registrationId, internId: req.user.id, paidUserId } },
+      { email: paidUserEmail, amount: amount * 100, metadata: { registrationId, affiliateId: req.user.id, paidUserId } },
       { headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` } }
     );
 
     const { authorization_url, reference } = paystackRes.data.data;
 
     await Transaction.create({
-      registrationId, internId: req.user.id, paidUserId,
+      registrationId, affiliateId: req.user.id, paidUserId,
       amount, commission: amount * COMMISSION_RATE,
       paystackRef: reference,
     });
 
     res.json({ authorization_url, reference });
   } catch (err) {
+    console.error("[PAY] Init Error:", err.response?.data || err.message);
     res.status(500).json({ error: 'Payment initialization failed' });
   }
 });
 
-app.get('/api/commissions/balance', authenticate, requireIntern, async (req, res) => {
-  const redis = await getRedisClient();
-  const balance = await redis.get(KEYS.internBalance(req.user.id));
-  res.json({ balance: parseFloat(balance || '0').toFixed(2) });
+app.get('/api/commissions/balance', authenticate, requireAffiliate, async (req, res) => {
+  try {
+    const redis = await getRedisClient();
+    const balance = await redis.get(KEYS.affiliateBalance(req.user.id));
+    res.json({ balance: parseFloat(balance || '0').toFixed(2) });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch balance" });
+  }
 });
 
 app.get('/health', (_, res) => res.json({ service: 'payment-service', status: 'OK', port: PORT }));
 
-// 5. START SERVER
 const start = async () => {
   try {
     await sequelize.authenticate();
@@ -125,6 +136,7 @@ const start = async () => {
     app.listen(PORT, () => console.log(`\n💰 Payment Service: http://localhost:${PORT}`));
   } catch (err) {
     console.error('Unable to start Payment Service:', err);
+    process.exit(1);
   }
 };
 

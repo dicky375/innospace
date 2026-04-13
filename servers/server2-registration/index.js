@@ -1,8 +1,11 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadDir = path.resolve(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true});
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 import express from 'express';
@@ -20,6 +23,7 @@ const PORT = process.env.SERVER2_PORT || 3002;
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
+app.use('/uploads', express.static(uploadDir));
 
 const sequelize = createConnection({
   name: process.env.DB_REG_NAME,
