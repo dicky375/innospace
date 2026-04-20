@@ -1,101 +1,97 @@
 import dotenv from 'dotenv';
 dotenv.config();
+
 import http from 'http';
 import httpProxy from 'http-proxy';
 import morgan from 'morgan';
-import { SERVER_REGISTRY } from '../shared/config/server.js';
+import { SERVER_REGISTRY, getTargetService } from '../shared/config/server.js';
 
 const PORT = process.env.LOAD_BALANCER_PORT || 3000;
-// CRITICAL: Bind to 0.0.0.0 to allow network-wide access (192.168.43.82)
-const HOST = '0.0.0.0'; 
+const HOST = '0.0.0.0';
 
-// 1. Initialize Proxy with high-performance settings
 const proxy = httpProxy.createProxyServer({
-  proxyTimeout: 10000, // Increased to 10s to prevent early timeouts
-  timeout: 10000,
-  ws: true 
+  proxyTimeout: 15000,
+  timeout: 15000,
+  ws: true,
+  changeOrigin: true,
 });
 
-const logger = morgan('dev');
+const logger = morgan('combined');
 
-// 2. Centralized Error Handling
+// Global Proxy Error Handler
 proxy.on('error', (err, req, res) => {
-  console.error(`[LB] Critical Proxy Error: ${err.code}`);
+  console.error(`[LB] Proxy Error: ${err.code} | ${req.method} ${req.url}`);
   
   if (res && !res.headersSent) {
     res.writeHead(502, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ 
-      error: 'Gateway Error', 
-      message: 'The requested microservice is offline or unreachable.',
-      code: err.code 
+    res.end(JSON.stringify({
+      success: false,
+      error: 'Bad Gateway',
+      message: 'Service is currently unavailable. Please try again later.',
     }));
   }
 });
 
-// 3. Route Resolver Logic
-function resolveTarget(url) {
-  const path = url.split('?')[0];
-  return SERVER_REGISTRY.find(server => 
-    server.routes.some(prefix => path.startsWith(prefix))
-  );
-}
-
-// 4. Create the Primary HTTP Server
+// Main Server
 const server = http.createServer((req, res) => {
   logger(req, res, () => {
-    
-    // Health Check Endpoint for Monitoring
+    // 1. Health Check
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ 
-        status: 'UP', 
+      return res.end(JSON.stringify({
+        status: 'healthy',
         timestamp: new Date().toISOString(),
-        node: process.version,
-        active_routes: SERVER_REGISTRY.length 
+        services: SERVER_REGISTRY.length,
+        environment: process.env.NODE_ENV || 'development'
       }));
     }
 
-    const targetService = resolveTarget(req.url);
+    // 2. Resolve Target (Now correctly placed inside the request handler)
+    const targetService = getTargetService(req.url);
 
     if (!targetService) {
-      console.warn(`[LB] 404 - No route registered for: ${req.url}`);
+      console.warn(`[LB] No matching service for: ${req.method} ${req.url}`);
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: `Route ${req.url} not found in registry.` }));
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Not Found',
+        message: `No service registered for ${req.url}`
+      }));
     }
 
-    // Forward the request to the target microservice
-    proxy.web(req, res, { 
-      target: targetService.target,
-      changeOrigin: true 
-    });
+    // 3. Proxy the request
+    console.log(`[LB] ${req.method} ${req.url} → ${targetService.name}`);
+    proxy.web(req, res, { target: targetService.target });
   });
 });
 
-// 5. Start the Engine
+// Start Load Balancer
 server.listen(PORT, HOST, () => {
   console.clear();
-  console.log(`\n🚀 INNOSPACE LOAD BALANCER (index.js)`);
-  console.log(`-------------------------------------------`);
-  console.log(`Network URL: http://192.168.43.82:${PORT}`);
-  console.log(`Local URL:   http://localhost:${PORT}`);
-  console.log(`Status:      Listening on all interfaces`);
-  console.log(`-------------------------------------------`);
-  
-  SERVER_REGISTRY.forEach((s) => {
-    console.log(`📦 ${s.name.padEnd(15)} -> ${s.target}`);
+  console.log(`\n🚀 INNOSPACE LOAD BALANCER RUNNING`);
+  console.log(`=====================================`);
+  console.log(`Network : http://192.168.43.82:${PORT}`);
+  console.log(`Local   : http://localhost:${PORT}`);
+  console.log(`Mode    : ${process.env.NODE_ENV || 'development'}`);
+  console.log(`=====================================\n`);
+
+  SERVER_REGISTRY.forEach(s => {
+    console.log(`📦 ${s.name.padEnd(18)} → ${s.target}`);
   });
-  console.log(`-------------------------------------------\n`);
+  console.log(`\n✅ Load Balancer is ready to route requests.\n`);
 });
 
-/**
- * Port Conflict & Fatal Error Handling
- */
+// Port Error Handling
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`\n❌ ERROR: Port ${PORT} is already occupied!`);
-    console.error(`👉 Run: "sudo fuser -k ${PORT}/tcp" before restarting.\n`);
+    console.error(`❌ Port ${PORT} is already in use!`);
     process.exit(1);
   } else {
-    console.error('[LB] Server Crash:', err);
+    console.error('[LB] Server Error:', err);
   }
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Shutting down Load Balancer...');
+  server.close(() => process.exit(0));
 });
