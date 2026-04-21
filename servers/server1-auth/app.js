@@ -48,7 +48,7 @@ const generateTokens = (user) => {
 app.get('/health', (_, res) => res.json({ service: 'auth-service', status: 'OK' }));
 
 // Register
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/registrations/register', async (req, res) => {
   try {
     const { name, email, password, phone, role } = req.body;
 

@@ -27,30 +27,27 @@ proxy.on('error', (err, req, res) => {
     res.end(JSON.stringify({
       success: false,
       error: 'Bad Gateway',
-      message: 'Service is currently unavailable. Please try again later.',
+      message: 'The requested service is down or unreachable.',
     }));
   }
 });
 
-// Main Server
+// Main Server Logic
 const server = http.createServer((req, res) => {
   logger(req, res, () => {
-    // 1. Health Check
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        services: SERVER_REGISTRY.length,
+        services: SERVER_REGISTRY?.length || 0,
         environment: process.env.NODE_ENV || 'development'
       }));
     }
 
-    // 2. Resolve Target (Now correctly placed inside the request handler)
     const targetService = getTargetService(req.url);
 
     if (!targetService) {
-      console.warn(`[LB] No matching service for: ${req.method} ${req.url}`);
       res.writeHead(404, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         success: false,
@@ -59,39 +56,40 @@ const server = http.createServer((req, res) => {
       }));
     }
 
-    // 3. Proxy the request
-    console.log(`[LB] ${req.method} ${req.url} → ${targetService.name}`);
+    // Path Rewrite: Strips the prefix if it exists
+    const originalPath = req.url;
+    const prefix = targetService.prefix || '';
+    const rewrittenPath = req.url.startsWith(prefix) 
+      ? req.url.replace(prefix, '') || '/' 
+      : req.url;
+    
+    req.url = rewrittenPath;
+
+    console.log(`[LB] ${req.method} ${originalPath} → ${targetService.name}${rewrittenPath}`);
     proxy.web(req, res, { target: targetService.target });
   });
 });
 
-// Start Load Balancer
 server.listen(PORT, HOST, () => {
   console.clear();
-  console.log(`\n🚀 INNOSPACE LOAD BALANCER RUNNING`);
+  console.log(`\n🚀 INNOSPACE LOAD BALANCER`);
   console.log(`=====================================`);
-  console.log(`Network : http://192.168.43.82:${PORT}`);
-  console.log(`Local   : http://localhost:${PORT}`);
-  console.log(`Mode    : ${process.env.NODE_ENV || 'development'}`);
-  console.log(`=====================================\n`);
-
-  SERVER_REGISTRY.forEach(s => {
-    console.log(`📦 ${s.name.padEnd(18)} → ${s.target}`);
-  });
-  console.log(`\n✅ Load Balancer is ready to route requests.\n`);
+  
+  // Robust logging to prevent padEnd crashes
+  if (Array.isArray(SERVER_REGISTRY)) {
+    SERVER_REGISTRY.forEach(s => {
+      const name = (s.name || 'Unknown').padEnd(15);
+      const prefix = (s.prefix || 'N/A').padEnd(18);
+      console.log(`📦 ${name} | Prefix: ${prefix} → ${s.target}`);
+    });
+  }
+  
+  console.log(`\n✅ Ready at http://localhost:${PORT}\n`);
 });
 
-// Port Error Handling
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`❌ Port ${PORT} is already in use!`);
+    console.error(`❌ Port ${PORT} is busy.`);
     process.exit(1);
-  } else {
-    console.error('[LB] Server Error:', err);
   }
-});
-
-process.on('SIGTERM', () => {
-  console.log('\n🛑 Shutting down Load Balancer...');
-  server.close(() => process.exit(0));
 });
