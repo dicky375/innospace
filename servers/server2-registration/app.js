@@ -1,97 +1,81 @@
+import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-dotenv.config();
-
-import express from 'express';
-import cors from 'cors';
-import morgan from 'morgan';
-import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-// 1. Import the connection
-import { sequelize } from '../shared/config/db.js'; 
-import { authenticate, requireAffiliate, requireAdmin } from '../middleware/auth.js';
-import { setupAssociations } from '../models/associations.js';
-
-// 2. Import the Model Factories
-import UserFactory from '../../shared/models/User.js'; 
-import ProgramFactory from '../../shared/models/Program.js';
-import RegistrationFactory from '../../shared/models/Registration.js';
-
-// 3. Initialize Models for this specific Sequelize instance
-const User = UserFactory(sequelize);
-const Program = ProgramFactory(sequelize);
-const Registration = RegistrationFactory(sequelize);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
-const PORT = process.env.SERVER2_PORT || 3002;
+// 1. DEFENSIVE DOTENV LOADING
+// Try standard location, then one level up, then two levels up
+dotenv.config(); 
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-// ===================== MULTER CONFIG =====================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, 'uploads/siwes'));
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
+// Backup: Try the absolute path for your specific Lubuntu setup
+dotenv.config({ path: '/home/dicky/inno_backend/.env' });
 
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }
-});
+const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 
-// ===================== MIDDLEWARE =====================
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
-app.use(express.json());
-app.use(morgan('dev'));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Terminal Debugging - This will tell you EXACTLY why it fails
+console.log("--- [AUTH MIDDLEWARE DEBUG] ---");
+console.log("Current Working Dir:", process.cwd());
+console.log("Secret Found:", JWT_ACCESS_SECRET ? "YES ✅" : "NO ❌");
+console.log("-------------------------------");
 
-// ===================== ROUTES =====================
-app.get('/health', (_, res) => res.json({ service: 'registration-service', status: 'OK' }));
+export const authenticate = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
 
-app.post('/api/registrations', authenticate, requireAffiliate, upload.single('siwesForm'), async (req, res) => {
-  try {
-    const registrationData = {
-      ...req.body,
-      affiliateId: req.user.id,
-      status: 'pending_approval',
-      siwesFormPath: req.file ? `siwes/${req.file.filename}` : null,
-      siwesFormName: req.file ? req.file.originalname : null,
-      commissionEarned: req.body.amount * 0.1
-    };
-
-    const registration = await Registration.create(registrationData);
-    res.status(201).json({ success: true, data: registration });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-const start = async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('[PostgreSQL] Connected to innospace_registrations');
-
-    // Setup associations using the initialized models
-    setupAssociations(sequelize);
-
-    // This will now successfully create the 'users' table because it's been initialized
-    await sequelize.sync({ alter: true });
-    console.log('✅ Registration Database synced and tables created.');
-
-    app.listen(PORT, () => {
-      console.log(`📋 Registration Service running on http://localhost:${PORT}`);
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      error: 'Access token is required'
     });
-  } catch (err) {
-    console.error('Failed to start Registration Service:', err);
-    process.exit(1);
   }
+
+  const token = authHeader.split(' ')[1];
+
+  // This is the check that was failing
+  if (!JWT_ACCESS_SECRET) {
+    return res.status(500).json({ 
+      success: false, 
+      error: "Internal server config error",
+      details: "JWT_ACCESS_SECRET is undefined. Check .env path."
+    });
+  }
+
+  jwt.verify(token, JWT_ACCESS_SECRET, (err, decoded) => {
+    if (err) {
+      console.log("JWT Verification Failed:", err.message);
+      return res.status(401).json({
+        success: false,
+        error: err.name === 'TokenExpiredError' ? 'Access token expired' : 'Invalid access token'
+      });
+    }
+
+    req.user = decoded;
+    next();
+  });
 };
 
-start();
+export const requireAffiliate = (req, res, next) => {
+  if (req.user?.role !== 'affiliate') {
+    return res.status(403).json({
+      success: false,
+      error: 'Only affiliates are allowed to perform this action'
+    });
+  }
+  next();
+};
+
+export const requireAdmin = (req, res, next) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      error: 'Admin access only'
+    });
+  }
+  next();
+};
+
+export default { authenticate, requireAffiliate, requireAdmin };

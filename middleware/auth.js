@@ -1,12 +1,18 @@
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Ensure .env is loaded correctly in a microservices structure
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
 /**
- * Verify Access Token
+ * Main Authentication Middleware
+ * Validates the JWT and attaches user payload to req.user
  */
 export const authenticate = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -20,28 +26,34 @@ export const authenticate = (req, res, next) => {
 
   const token = authHeader.split(' ')[1];
 
-  try {
-    const decoded = jwt.verify(token, JWT_ACCESS_SECRET);
-    req.user = decoded;        // { id, role, email, name, ... }
-    next();
-  } catch (err) {
-    if (err.name === 'TokenExpiredError') {
+  if (!JWT_ACCESS_SECRET) {
+    console.error("[AUTH ERROR]: JWT_ACCESS_SECRET is not defined in .env");
+    return res.status(500).json({ success: false, error: "Internal server config error" });
+  }
+
+  jwt.verify(token, JWT_ACCESS_SECRET, (err, decoded) => {
+    if (err) {
+      console.log("JWT Auth Error:", err.message);
+      
+      const errorMessage = err.name === 'TokenExpiredError' 
+        ? 'Access token expired' 
+        : 'Invalid access token';
+        
       return res.status(401).json({
         success: false,
-        error: 'Access token expired',
-        code: 'TOKEN_EXPIRED'
+        error: errorMessage,
+        code: err.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN'
       });
     }
 
-    return res.status(401).json({
-      success: false,
-      error: 'Invalid access token'
-    });
-  }
+    // Success: Attach decoded payload to request
+    req.user = decoded; 
+    next();
+  });
 };
 
 /**
- * Only allow Affiliates
+ * Role Check: Affiliates Only
  */
 export const requireAffiliate = (req, res, next) => {
   if (!req.user) {
@@ -59,7 +71,7 @@ export const requireAffiliate = (req, res, next) => {
 };
 
 /**
- * Only allow Admins
+ * Role Check: Admins Only
  */
 export const requireAdmin = (req, res, next) => {
   if (!req.user) {
@@ -77,7 +89,7 @@ export const requireAdmin = (req, res, next) => {
 };
 
 /**
- * Optional: Allow both Admin and Affiliate
+ * Generic Auth Check: Allows any authenticated user (Admin or Affiliate)
  */
 export const requireAuth = (req, res, next) => {
   if (!req.user) {
