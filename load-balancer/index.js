@@ -71,18 +71,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-//Health Check Endpoint
-app.get("/", (req, res) => {
-  res.json({
-    gateway: "InnoSpace Load Balancer",
-    status: "running",
-    services: [
-      "auth",
-      "register",
-      "payment"
-    ]
-  });
-});
 
 server.listen(PORT, HOST, () => {
   console.clear();
