@@ -45,6 +45,13 @@ RefreshToken.belongsTo(User, { foreignKey: 'user_id' });
 app.use('/api/auth', authRoutes(User, RefreshToken));
 app.use('/api/users', userRoutes(User));
 
+app.get("/", (req, res) => {
+  res.json({
+    service: "Auth Service",
+    status: "running",
+    port: 3001
+  });
+});
 const startServer = async () => {
   try {
     await sequelize.authenticate();
