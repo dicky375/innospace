@@ -44,7 +44,7 @@ RefreshToken.belongsTo(User, { foreignKey: 'user_id' });
 
 app.use('/api/auth', authRoutes(User, RefreshToken));
 app.use('/api/users', userRoutes(User));
-
+// tis is done to check if the server is running via terminal
 app.get("/", (req, res) => {
   res.json({
     service: "Auth Service",

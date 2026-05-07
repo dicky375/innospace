@@ -56,7 +56,14 @@ app.use('/api/programs', programRoutes(Program));
 app.use('/api/registrations', registrationRoutes(Registration, Program));
 
 app.get('/health', (_, res) => res.json({ service: 'registration-service', status: 'UP' }));
-
+// This endpoint is just to verify that the server is running when accessed via terminal
+app.get("/", (req, res) => {
+  res.json({
+    service: "Registration Service",
+    status: "running",
+    port: 3002
+  });
+});
 const startServer = async () => {
   try {
     await sequelize.authenticate();

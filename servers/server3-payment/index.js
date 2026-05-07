@@ -48,7 +48,14 @@ const Transaction = sequelize.define('Transaction', {
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
-
+// this is done to check if the server is running via terminal
+app.get("/", (req, res) => {
+  res.json({
+    service: "Payment Service",
+    status: "running",
+    port: 3003
+  });
+});
 // Raw body for webhook (MUST be before express.json())
 app.post('/api/webhook/paystack', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
