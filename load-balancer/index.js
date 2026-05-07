@@ -1,10 +1,11 @@
 import dotenv from 'dotenv';
 dotenv.config();
-
+const app = express();
 import http from 'http';
 import httpProxy from 'http-proxy';
 import morgan from 'morgan';
 import { SERVER_REGISTRY, getTargetService } from '../shared/config/server.js';
+import express from 'express';
 
 const PORT = process.env.LOAD_BALANCER_PORT || 3000;
 const HOST = '0.0.0.0';
@@ -67,6 +68,19 @@ const server = http.createServer((req, res) => {
 
     console.log(`[LB] ${req.method} ${originalPath} → ${targetService.name}${rewrittenPath}`);
     proxy.web(req, res, { target: targetService.target });
+  });
+});
+
+//Health Check Endpoint
+app.get("/", (req, res) => {
+  res.json({
+    gateway: "InnoSpace Load Balancer",
+    status: "running",
+    services: [
+      "auth",
+      "register",
+      "payment"
+    ]
   });
 });
 
