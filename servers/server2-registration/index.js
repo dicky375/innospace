@@ -2,7 +2,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fs from 'fs';
-
+import helmet from 'helmet';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true});
@@ -30,6 +30,7 @@ const PORT = process.env.SERVER2_PORT || 3002;
 
 app.use(cors());
 app.use(express.json());
+app.use(helmet());
 app.use(morgan('dev'));
 app.use('/uploads', express.static(uploadDir));
 

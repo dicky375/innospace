@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import crypto from 'crypto';
+import helmet from 'helmet';
 import axios from 'axios';
 import { DataTypes } from 'sequelize';
 
@@ -48,6 +49,7 @@ const Transaction = sequelize.define('Transaction', {
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(helmet());
 // this is done to check if the server is running via terminal
 app.get("/", (req, res) => {
   res.json({

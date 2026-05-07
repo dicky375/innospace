@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import bcrypt from 'bcryptjs';
-
+import helmet from 'helmet';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -17,6 +17,7 @@ import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 
 const app = express();
+app.use(helmet());
 const PORT = process.env.SERVER1_PORT || 3001;
 
 app.use(cors());
