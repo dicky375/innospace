@@ -23,8 +23,7 @@ export const SERVER_REGISTRY = [
 ];
 
 export const getTargetService = (url) => {
-  const path = url.split('?')[0];
-  return SERVER_REGISTRY.find(service => 
-    service.routes.some(route => path.startsWith(route))
+  return SERVER_REGISTRY.find(service =>
+    url.startswith(service.prefix)
   );
 };
