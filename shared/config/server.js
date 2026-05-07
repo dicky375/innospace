@@ -24,6 +24,6 @@ export const SERVER_REGISTRY = [
 
 export const getTargetService = (url) => {
   return SERVER_REGISTRY.find(service =>
-    url.startswith(service.prefix)
+    url.startsWith(service.prefix)
   );
 };
