@@ -6,6 +6,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import bcrypt from 'bcryptjs';
 import helmet from 'helmet';
+import jwt from 'jsonwebtoken'
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -37,6 +38,17 @@ const sequelize = createConnection({
 const User = defineUser(sequelize);
 const RefreshToken = defineRefreshToken(sequelize);
 
+const token = jwt.sign(
+  {
+    id: user.id,
+    email: user.email,
+  },
+process.env.JWT_ACCESS_SECRET,
+{ 
+  expiresIn: '1d'
+
+ }
+);
 // ... Define Relationships (HasMany/BelongsTo) ...
 User.hasMany(RefreshToken, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 RefreshToken.belongsTo(User, { foreignKey: 'user_id' });
@@ -52,6 +64,30 @@ app.get("/", (req, res) => {
     status: "running",
     port: 3001
   });
+});
+
+app.post('/register', async (req, res) => {
+     try{
+      const {name, email, password } = req.body;
+      
+      const hashedPassword = await bcrypt.hash(password, 10);
+       res.status(201).json({
+       success: true,
+       message: 'User registered successfully',
+       user: {
+        name,
+        email,
+        password: hashedPassword
+       },
+     });
+     } catch (err) {
+      res.status(500).json({
+        success: false,
+        error: err.message,
+      
+      });
+     }
+    
 });
 const startServer = async () => {
   try {
