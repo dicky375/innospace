@@ -8,12 +8,9 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 import { createConnection } from '../shared/config/db.js';
-import User from '../models/User.js';
-import RefreshToken from '../models/RefreshToken.js';
-import { User, RefreshToken, app } from './index.js';
-import authRoutes from './routes/auth.routes.js';
-import userRoutes from './routes/user.routes.js';
-import { error } from 'console';
+import UserModel from '../models/User.js';
+import RefreshTokenModel from '../models/RefreshToken.js';
+//import { User, RefreshToken, app } from './index.js';
 
 const app = express();
 const PORT = process.env.SERVER1_PORT || 3001;
