@@ -98,17 +98,16 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ where: { email, isActive: true } });
-     const token = jwt.sign(
-  {
-    id: user.id,
-    email: user.email,
-  },
-process.env.JWT_ACCESS_SECRET,
-{ 
-  expiresIn: '1d'
-
- }
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role
+      },
+      process.env.JWT_ACCESS_SECRET,
+      { expiresIn: '1d' }   
 );
+  res.json({token});
 
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
