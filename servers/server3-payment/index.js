@@ -89,6 +89,7 @@ app.use(express.json());
 async function processSuccessfulPayment(reference, metadata, amount) {
   try {
     const txn = await Transaction.findOne({ where: { paystackRef: reference } });
+    // prevents duplicate webhook credits
     if (!txn || txn.commissionCredited) return;
 
     const commission = parseFloat((amount * 0.05).toFixed(2)); // 5% commission
