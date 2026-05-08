@@ -13,6 +13,7 @@ import RefreshToken from '../models/RefreshToken.js';
 import { User, RefreshToken, app } from './index.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
+import { error } from 'console';
 
 const app = express();
 const PORT = process.env.SERVER1_PORT || 3001;
@@ -95,43 +96,53 @@ app.post('/api/registrations/register', async (req, res) => {
 
 // Login
 app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ where: { email, isActive: true } });
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role
-      },
-      process.env.JWT_ACCESS_SECRET,
-      { expiresIn: '1d' }   
-);
-  res.json({token});
+  try{
+    const {email, password } = req.body;
 
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    const user = await User.findOne({
+      where: {email, isActive: true }
+    });
+    if (!user) {
+        return res.status(401).json({
+          error: "Invalid credentials"
+        });
+    }
 
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
-    const { accessToken, refreshToken } = generateTokens(user);
+    if (!valid) {
+      return res.status(401).json({
+        error: "Invalid credentials"
+      });
+    }
+
+    const {accessToken, refreshToken } = generateTokens(user);
 
     await RefreshToken.create({
       token: refreshToken,
       userId: user.id,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      expiresAt: new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      )
     });
-
-    await user.update({ lastLogin: new Date() });
-
+    await user.update({
+      lastLogin: new Date()
+    });
     res.json({
       success: true,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: {
+        id: user.name,
+        email: user.email,
+        role: user.role
+      },
       accessToken,
       refreshToken
     });
   } catch (err) {
-    res.status(500).json({ error: "Login failed" });
+    console.error("[AUTH LOGIN ERROR", err);
+    res.status(500).json({
+      error: "Login failed"
+    });
   }
 });
 
