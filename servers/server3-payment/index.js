@@ -83,6 +83,7 @@ app.post('/api/webhook/paystack', express.raw({ type: 'application/json' }), asy
     res.sendStatus(500);
   }
 });
+app.use(express.json());
 
 // ===================== PAYMENT LOGIC =====================
 async function processSuccessfulPayment(reference, metadata, amount) {
