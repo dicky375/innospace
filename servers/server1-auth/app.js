@@ -10,6 +10,9 @@ import jwt from 'jsonwebtoken';
 import { createConnection } from '../shared/config/db.js';
 import User from '../models/User.js';
 import RefreshToken from '../models/RefreshToken.js';
+import { User, RefreshToken, app } from './index.js';
+import authRoutes from './routes/auth.routes.js';
+import userRoutes from './routes/user.routes.js';
 
 const app = express();
 const PORT = process.env.SERVER1_PORT || 3001;
@@ -95,6 +98,17 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ where: { email, isActive: true } });
+     const token = jwt.sign(
+  {
+    id: user.id,
+    email: user.email,
+  },
+process.env.JWT_ACCESS_SECRET,
+{ 
+  expiresIn: '1d'
+
+ }
+);
 
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 

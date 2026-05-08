@@ -17,7 +17,7 @@ import defineRefreshToken from '../../shared/models/RefreshToken.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 
-const app = express();
+export const app = express();
 app.use(helmet());
 const PORT = process.env.SERVER1_PORT || 3001;
 
@@ -35,20 +35,10 @@ const sequelize = createConnection({
 }, 'Server1 (auth)');
 
 // 3. Initialize the shared models
-const User = defineUser(sequelize);
-const RefreshToken = defineRefreshToken(sequelize);
+export const User = defineUser(sequelize);
+export const RefreshToken = defineRefreshToken(sequelize);
 
-const token = jwt.sign(
-  {
-    id: user.id,
-    email: user.email,
-  },
-process.env.JWT_ACCESS_SECRET,
-{ 
-  expiresIn: '1d'
 
- }
-);
 // ... Define Relationships (HasMany/BelongsTo) ...
 User.hasMany(RefreshToken, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 RefreshToken.belongsTo(User, { foreignKey: 'user_id' });
