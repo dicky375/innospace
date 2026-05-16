@@ -4,10 +4,6 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import helmet from 'helmet';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true});
 
