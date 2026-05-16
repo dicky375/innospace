@@ -1,14 +1,16 @@
+import './env.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import helmet from 'helmet';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true});
 
-// Path to root .env
-dotenv.config({ path: path.resolve(__dirname, '../../.env') }); 
 
 import express from 'express';
 import cors from 'cors';
@@ -71,7 +73,7 @@ const startServer = async () => {
     
     // 6. SYNC WITH ALTER
     // This will now successfully create the 'users' table in innospace_registrations
-    await sequelize.sync({ alter: true });
+    await sequelize.sync({ alter: process.env.NODE_ENV === 'development' }); // Only alter in development
     
     app.listen(PORT, () => {
       console.log(`\n📋 REGISTRATION SERVICE ACTIVE`);
