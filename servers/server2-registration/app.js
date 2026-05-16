@@ -12,9 +12,6 @@ dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-// Backup: Try the absolute path for your specific Lubuntu setup
-dotenv.config({ path: '/home/dicky/inno_backend/.env' });
-
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 
 // Terminal Debugging - This will tell you EXACTLY why it fails

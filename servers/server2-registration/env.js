@@ -4,5 +4,5 @@ import { fileURLToPath } from 'url';
 
 export const __dirname = dirname(fileURLToPath(import.meta.url));
 
-dotenv.config({ path: resolve(__dirname, '.env') });
+// Root .env is 2 levels up from servers/server2-registration/
 dotenv.config({ path: resolve(__dirname, '../../.env') });
