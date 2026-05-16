@@ -1,4 +1,5 @@
 import './env.js';
+import {__dirname } from './env.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
