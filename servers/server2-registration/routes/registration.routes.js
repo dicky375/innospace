@@ -105,19 +105,7 @@ export default (Registration, Program) => {
     }
   });
 
-  // GET /api/registrations/mine — student sees their own registrations
-  router.get('/mine', authenticate, async (req, res) => {
-    try {
-      const registrations = await Registration.findAll({
-        where: { studentEmail: req.user.email },
-        include: [{ model: Program }],
-        order: [['createdAt', 'DESC']],
-      });
-      res.json(registrations);
-    } catch (err) {
-      res.status(500).json({ error: 'Server error' });
-    }
-  });
+  
 
   // GET /api/registrations/pending — admin sees all pending
   router.get('/pending', authenticate, requireAdmin, async (req, res) => {
