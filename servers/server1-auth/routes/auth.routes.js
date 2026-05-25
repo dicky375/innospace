@@ -1,173 +1,319 @@
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import {authenticate, requireAdmin} from '../../../middleware/auth.js';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+import { Op } from 'sequelize';
+import { authenticate, requireAffiliate, requireAdmin } from '../../../middleware/auth.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
 
-export default (User, RefreshToken) => {
+// ── Multer setup ───────────────────────────────────────────────────
+const uploadDir = path.resolve(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-  function signAccessToken(user) {
-    return jwt.sign(
-      { id: user.id, email: user.email, role: user.role, name: user.name },
-      process.env.JWT_ACCESS_SECRET,
-      { expiresIn: process.env.JWT_ACCESS_EXPIRES || '15m' }
-    );
-  }
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
 
-  function signRefreshToken(user) {
-    return jwt.sign(
-      { id: user.id },
-      process.env.JWT_REFRESH_SECRET,
-      { expiresIn: process.env.JWT_REFRESH_EXPIRES || '7d' }
-    );
-  }
+const fileFilter = (req, file, cb) => {
+  const allowed = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (allowed.includes(ext)) cb(null, true);
+  else cb(new Error('Only PDF, DOC, DOCX, JPG, PNG files are allowed'));
+};
 
-  async function saveRefreshToken(userId, token) {
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-    await RefreshToken.create({ token, userId, expiresAt });
-  }
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
 
-  // POST /api/auth/register
-  router.post('/register', async (req, res) => {
+export default (Registration, Program) => {
+
+  // ── POST /api/registrations — affiliate registers a student ────
+  router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), async (req, res) => {
     try {
-      const { name, email, password, phone, role } = req.body;
-      if (!name || !email || !password)
-        return res.status(400).json({ error: 'name, email and password required' });
+      const affiliateId = req.user.id;
+      const {
+        programId, studentName, studentPhone, studentEmail,
+        course, department, regNumber, hodName, supervisorName,
+      } = req.body;
 
-      const existing = await User.findOne({ where: { email } });
-      if (existing) return res.status(409).json({ error: 'Email already registered' });
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(password, salt);
-      const safeRole = role === 'affiliate' ? 'affiliate' : 'user';
-      const user = await User.create({ name, email, password: hashedPassword, phone, role: safeRole });
+      if (!programId || !studentName || !studentPhone || !course || !department || !regNumber || !hodName || !supervisorName)
+        return res.status(400).json({ error: 'All student details are required' });
 
-      const accessToken = signAccessToken(user);
-      const refreshToken = signRefreshToken(user);
-      await saveRefreshToken(user.id, refreshToken);
+      const program = await Program.findByPk(programId);
+      if (!program || !program.isActive)
+        return res.status(404).json({ error: 'Program not found or inactive' });
+
+      // FIX: use Op.in for array check
+      const duplicate = await Registration.findOne({
+        where: {
+          regNumber,
+          programId,
+          status: { [Op.in]: ['pending_approval', 'approved', 'paid'] },
+        },
+      });
+      if (duplicate)
+        return res.status(409).json({ error: 'Student already registered for this program' });
+
+      const registration = await Registration.create({
+        programId,
+        affiliateId,
+        isSelfRegistered: false,
+        studentName,
+        studentPhone,
+        studentEmail: studentEmail || null,
+        course,
+        department,
+        regNumber,
+        hodName,
+        supervisorName,
+        siwesFormPath: req.file ? req.file.filename : null,
+        siwesFormName: req.file ? req.file.originalname : null,
+        amount: program.monthlyFee,
+        status: 'pending_approval',
+        commissionEarned: 0,
+      });
 
       res.status(201).json({
-        accessToken,
-        refreshToken,
-        user: { id: user.id, name, email, role: safeRole },
+        message: 'Registration submitted — pending admin approval',
+        registration,
+        note: program.type === 'siwes'
+          ? 'No commission for SIWES registrations'
+          : `Commission of ₦${program.affiliateCommission} will be earned after approval`,
       });
     } catch (err) {
       console.error(err);
+      res.status(500).json({ error: err.message || 'Server error' });
+    }
+  });
+
+  // ── GET /api/registrations/my — affiliate's own registrations ──
+  router.get('/my', authenticate, requireAffiliate, async (req, res) => {
+    try {
+      const registrations = await Registration.findAll({
+        where: { affiliateId: req.user.id },
+        include: [{ model: Program, attributes: ['id', 'title', 'type', 'monthlyFee', 'affiliateCommission'] }],
+        order: [['createdAt', 'DESC']],
+      });
+      res.json(registrations);
+    } catch (err) {
       res.status(500).json({ error: 'Server error' });
     }
   });
 
-  // POST /api/auth/login
-  router.post('/login', async (req, res) => {
+  // ── GET /api/registrations/my/stats — affiliate dashboard stats ─
+  router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
     try {
-      const { email, password } = req.body;
-      const user = await User.findOne({ where: { email } });
-      if (!user || !(await bcrypt.compare(password, user.password)))
-        return res.status(401).json({ error: 'Invalid credentials' });
-      if (!user.isActive)
-        return res.status(403).json({ error: 'Account deactivated' });
+      const affiliateId = req.user.id;
 
-      const accessToken = signAccessToken(user);
-      const refreshToken = signRefreshToken(user);
-      await saveRefreshToken(user.id, refreshToken);
+      const [total, pending, approved, paid, rejected] = await Promise.all([
+        Registration.count({ where: { affiliateId } }),
+        Registration.count({ where: { affiliateId, status: 'pending_approval' } }),
+        Registration.count({ where: { affiliateId, status: 'approved' } }),
+        Registration.count({ where: { affiliateId, status: 'paid' } }),
+        Registration.count({ where: { affiliateId, status: 'rejected' } }),
+      ]);
+
+      // Sum total commission earned from paid registrations
+      const commissionResult = await Registration.findAll({
+        where: { affiliateId, status: 'paid' },
+        attributes: ['commissionEarned'],
+      });
+      const totalCommission = commissionResult.reduce(
+        (sum, r) => sum + parseFloat(r.commissionEarned || 0), 0
+      );
 
       res.json({
-        accessToken,
-        refreshToken,
-        user: { id: user.id, name: user.name, email, role: user.role },
+        total,
+        pending,
+        approved,
+        paid,
+        rejected,
+        totalCommissionEarned: totalCommission.toFixed(2),
       });
     } catch (err) {
-      console.error('[LOGIN ERROR]', err);
       res.status(500).json({ error: 'Server error' });
     }
   });
 
-  // POST /api/auth/refresh
-  router.post('/refresh', async (req, res) => {
+  // ── GET /api/registrations/pending — admin: all pending ────────
+  router.get('/pending', authenticate, requireAdmin, async (req, res) => {
     try {
-      const { refreshToken } = req.body;
-      if (!refreshToken)
-        return res.status(400).json({ error: 'Refresh token required' });
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const offset = (page - 1) * limit;
 
-      let payload;
-      try {
-        payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-      } catch {
-        return res.status(401).json({ error: 'Invalid or expired refresh token' });
-      }
-
-      const stored = await RefreshToken.findOne({
-        where: { token: refreshToken, isRevoked: false },
+      const { count, rows } = await Registration.findAndCountAll({
+        where: { status: 'pending_approval' },
+        include: [{ model: Program, attributes: ['id', 'title', 'type'] }],
+        order: [['createdAt', 'DESC']],
+        limit,
+        offset,
       });
-      if (!stored)
-        return res.status(401).json({ error: 'Refresh token not recognised or already revoked' });
 
-      if (new Date() > stored.expiresAt) {
-        await stored.update({ isRevoked: true });
-        return res.status(401).json({ error: 'Refresh token expired — please log in again' });
-      }
-
-      const user = await User.findByPk(payload.id);
-      if (!user || !user.isActive)
-        return res.status(401).json({ error: 'User not found or deactivated' });
-
-      // Rotate tokens
-      await stored.update({ isRevoked: true });
-      const newAccessToken = signAccessToken(user);
-      const newRefreshToken = signRefreshToken(user);
-      await saveRefreshToken(user.id, newRefreshToken);
-
-      res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
+      res.json({
+        total: count,
+        page,
+        totalPages: Math.ceil(count / limit),
+        registrations: rows,
+      });
     } catch (err) {
-      console.error(err);
       res.status(500).json({ error: 'Server error' });
     }
   });
 
-  // POST /api/auth/logout
-  router.post('/logout', async (req, res) => {
+  // ── GET /api/registrations/all — admin: all registrations ──────
+  router.get('/all', authenticate, requireAdmin, async (req, res) => {
     try {
-      const { refreshToken } = req.body;
-      if (!refreshToken)
-        return res.status(400).json({ error: 'Refresh token required' });
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const offset = (page - 1) * limit;
+      const { status } = req.query;
 
-      const stored = await RefreshToken.findOne({ where: { token: refreshToken } });
-      if (stored) await stored.update({ isRevoked: true });
+      const where = status ? { status } : {};
 
-      res.json({ message: 'Logged out successfully' });
+      const { count, rows } = await Registration.findAndCountAll({
+        where,
+        include: [{ model: Program, attributes: ['id', 'title', 'type'] }],
+        order: [['createdAt', 'DESC']],
+        limit,
+        offset,
+      });
+
+      res.json({
+        total: count,
+        page,
+        totalPages: Math.ceil(count / limit),
+        registrations: rows,
+      });
     } catch (err) {
       res.status(500).json({ error: 'Server error' });
     }
   });
 
-// GET /api/users/by-email?email=xxx
-router.get('/by-email', authenticate, async (req, res) => {
-  try {
-    const { email } = req.query;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
-    const user = await User.findOne({
-      where: { email },
-      attributes: { exclude: ['password'] }
-    });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+  // ── GET /api/registrations/uploads/:filename — serve files ─────
+  router.get('/uploads/:filename', authenticate, (req, res) => {
+    const filePath = path.resolve(uploadDir, req.params.filename);
+    if (!fs.existsSync(filePath))
+      return res.status(404).json({ error: 'File not found' });
+    res.sendFile(filePath);
+  });
 
-// GET /api/users — admin gets all users
-router.get('/', authenticate, requireAdmin, async (req, res) => {
-  try {
-    const users = await User.findAll({ attributes: { exclude: ['password'] } });
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+  // ── GET /api/registrations/:id — get single registration ───────
+  router.get('/:id', authenticate, async (req, res) => {
+    try {
+      const reg = await Registration.findByPk(req.params.id, {
+        include: [{ model: Program }],
+      });
+      if (!reg) return res.status(404).json({ error: 'Registration not found' });
 
+      // Affiliates can only view their own registrations
+      if (req.user.role === 'affiliate' && reg.affiliateId !== req.user.id)
+        return res.status(403).json({ error: 'Access denied' });
 
+      res.json(reg);
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ── PATCH /api/registrations/:id/approve — admin approves ──────
+  router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const reg = await Registration.findByPk(req.params.id, {
+        include: [{ model: Program }],
+      });
+      if (!reg) return res.status(404).json({ error: 'Registration not found' });
+      if (reg.status !== 'pending_approval')
+        return res.status(400).json({ error: `Cannot approve — status is ${reg.status}` });
+
+      // FIX: calculate commission from program on approval
+      const commission = reg.Program?.type === 'siwes'
+        ? 0
+        : parseFloat(reg.Program?.affiliateCommission || 0);
+
+      await reg.update({
+        status: 'approved',
+        approvedBy: req.user.id,
+        approvedAt: new Date(),
+        commissionEarned: commission,
+      });
+
+      res.json({
+        message: 'Registration approved',
+        registration: reg,
+        commissionAssigned: commission,
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ── PATCH /api/registrations/:id/reject — admin rejects ────────
+  router.patch('/:id/reject', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { reason } = req.body;
+      const reg = await Registration.findByPk(req.params.id);
+      if (!reg) return res.status(404).json({ error: 'Registration not found' });
+      if (reg.status !== 'pending_approval')
+        return res.status(400).json({ error: `Cannot reject — status is ${reg.status}` });
+
+      await reg.update({ status: 'rejected', rejectionReason: reason || null });
+      res.json({ message: 'Registration rejected', registration: reg });
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ── PATCH /api/registrations/:id/cancel — affiliate cancels ────
+  router.patch('/:id/cancel', authenticate, requireAffiliate, async (req, res) => {
+    try {
+      const reg = await Registration.findByPk(req.params.id);
+      if (!reg) return res.status(404).json({ error: 'Registration not found' });
+      if (reg.affiliateId !== req.user.id)
+        return res.status(403).json({ error: 'Access denied' });
+      if (!['pending_approval'].includes(reg.status))
+        return res.status(400).json({ error: `Cannot cancel — status is ${reg.status}` });
+
+      await reg.update({ status: 'cancelled' });
+      res.json({ message: 'Registration cancelled', registration: reg });
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ── PATCH /api/registrations/:id/mark-paid — payment service ───
+  // FIX: secured with internal service secret header
+  router.patch('/:id/mark-paid', async (req, res) => {
+    try {
+      const serviceSecret = req.headers['x-service-secret'];
+      if (!serviceSecret || serviceSecret !== process.env.INTERNAL_SERVICE_SECRET)
+        return res.status(401).json({ error: 'Unauthorized' });
+
+      const { paystackRef, commission } = req.body;
+      const reg = await Registration.findByPk(req.params.id);
+      if (!reg) return res.status(404).json({ error: 'Registration not found' });
+      if (reg.status !== 'approved')
+        return res.status(400).json({ error: `Cannot mark paid — status is ${reg.status}` });
+
+      await reg.update({
+        status: 'paid',
+        paystackRef,
+        commissionEarned: commission ?? reg.commissionEarned,
+      });
+      res.json(reg);
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
 
   return router;
 };
