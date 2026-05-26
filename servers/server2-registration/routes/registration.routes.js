@@ -87,7 +87,7 @@ export default (Registration, Program) => {
         registration,
         note: program.type === 'siwes'
           ? 'No commission for SIWES registrations'
-          : `Commission of ₦${program.affiliateCommission} will be earned after approval`,
+            : `Commission of ₦${(parseFloat(program.monthlyFee) * 0.10).toFixed(2)} will be earned after approval`,
       });
     } catch (err) {
       console.error(err);
