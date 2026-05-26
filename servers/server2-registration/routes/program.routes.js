@@ -8,19 +8,22 @@ export default (Program) => {
 
   // GET /api/programs — public
   router.get('/', async (req, res) => {
+  try {
     try {
       const redis = await getRedisClient();
       const cached = await redis.get(KEYS.programs());
       if (cached) return res.json({ source: 'cache', programs: JSON.parse(cached) });
-
-      const programs = await Program.findAll({ where: { isActive: true } });
-      await redis.set(KEYS.programs(), JSON.stringify(programs), 'EX', 300);
-      res.json({ source: 'db', programs });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
+    } catch (redisErr) {
+      console.warn('[Redis] Cache unavailable, falling back to DB');
     }
-  });
+
+    const programs = await Program.findAll({ where: { isActive: true } });
+    res.json({ source: 'db', programs });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
   // GET /api/programs/:id — public
   router.get('/:id', async (req, res) => {
