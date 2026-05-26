@@ -8,13 +8,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
+
 
 /**
  * Main Authentication Middleware
  * Validates the JWT and attaches user payload to req.user
  */
 export const authenticate = (req, res, next) => {
+  const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
   const authHeader = req.headers['authorization'];
 
   if (!authHeader?.startsWith('Bearer ')) {
