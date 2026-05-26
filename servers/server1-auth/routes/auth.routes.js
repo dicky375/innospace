@@ -40,7 +40,7 @@ export default (User, RefreshToken) => {
       if (existing) return res.status(409).json({ error: 'Email already registered' });
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
-      const safeRole = role === 'affiliate';
+      const safeRole = 'affiliate';
 
       const user = await User.create({ name, email, password: hashedPassword, phone, role: safeRole });
 
@@ -51,7 +51,7 @@ export default (User, RefreshToken) => {
       res.status(201).json({
         accessToken,
         refreshToken,
-        user: { id: user.id, name, email, role: safeRole },
+        user: { id: user.id, name: user.name, email, role: safeRole },
       });
     } catch (err) {
       console.error(err);
