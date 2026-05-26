@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 // Ensure .env is loaded correctly in a microservices structure
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
 
