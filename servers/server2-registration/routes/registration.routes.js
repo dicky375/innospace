@@ -238,7 +238,7 @@ export default (Registration, Program) => {
       // FIX: calculate commission from program on approval
       const commission = reg.Program?.type === 'siwes'
         ? 0
-        : parseFloat(reg.Program?.affiliateCommission || 0);
+        : parseFloat(reg.amount) * 0.10; // 10% commissions
 
       await reg.update({
         status: 'approved',
