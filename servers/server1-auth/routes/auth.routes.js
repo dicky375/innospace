@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import {authenticate, requireAdmin} from '../../../middleware/auth.js';
+import axios from 'axios';
+import { authenticate, requireAdmin } from '../../../middleware/auth.js';
 
 const router = Router();
 
@@ -11,7 +12,7 @@ export default (User, RefreshToken) => {
     return jwt.sign(
       { id: user.id, email: user.email, role: user.role, name: user.name },
       process.env.JWT_ACCESS_SECRET,
-      { expiresIn: process.env.JWT_ACCESS_EXPIRES || '15m' }
+      { expiresIn: process.env.JWT_ACCESS_EXPIRES || '1d' }
     );
   }
 
@@ -29,29 +30,64 @@ export default (User, RefreshToken) => {
     await RefreshToken.create({ token, userId, expiresAt });
   }
 
+  // Sync new user to registration service so foreign key constraints work
+  async function syncUserToRegistrationService(user) {
+    try {
+      const regPort = process.env.SERVER2_PORT || 3002;
+      await axios.post(
+        `http://localhost:${regPort}/api/internal/sync-user`,
+        {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: user.password,
+          phone: user.phone,
+          role: user.role,
+          isActive: user.isActive,
+        },
+        {
+          headers: { 'x-service-secret': process.env.INTERNAL_SERVICE_SECRET },
+        }
+      );
+      console.log(`[AUTH] ✓ User synced to registration service: ${user.email}`);
+    } catch (err) {
+      // Don't fail registration if sync fails — log it and move on
+      console.error(`[AUTH] ✗ Failed to sync user to registration service:`, err.message);
+    }
+  }
+
   // POST /api/auth/register
   router.post('/register', async (req, res) => {
     try {
-      const { name, email, password, phone, role } = req.body;
+      const { name, email, password, phone } = req.body;
       if (!name || !email || !password)
         return res.status(400).json({ error: 'name, email and password required' });
 
       const existing = await User.findOne({ where: { email } });
       if (existing) return res.status(409).json({ error: 'Email already registered' });
+
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
-      const safeRole = 'affiliate';
 
-      const user = await User.create({ name, email, password: hashedPassword, phone, role: safeRole });
+      const user = await User.create({
+        name,
+        email,
+        password: hashedPassword,
+        phone: phone || null,
+        role: 'affiliate',
+      });
 
       const accessToken = signAccessToken(user);
       const refreshToken = signRefreshToken(user);
       await saveRefreshToken(user.id, refreshToken);
 
+      // Sync user to registration service (non-blocking)
+      syncUserToRegistrationService(user);
+
       res.status(201).json({
         accessToken,
         refreshToken,
-        user: { id: user.id, name: user.name, email, role: safeRole },
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
       });
     } catch (err) {
       console.error(err);
@@ -69,6 +105,8 @@ export default (User, RefreshToken) => {
       if (!user.isActive)
         return res.status(403).json({ error: 'Account deactivated' });
 
+      await user.update({ lastLogin: new Date() });
+
       const accessToken = signAccessToken(user);
       const refreshToken = signRefreshToken(user);
       await saveRefreshToken(user.id, refreshToken);
@@ -76,7 +114,7 @@ export default (User, RefreshToken) => {
       res.json({
         accessToken,
         refreshToken,
-        user: { id: user.id, name: user.name, email, role: user.role },
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
       });
     } catch (err) {
       console.error('[LOGIN ERROR]', err);
@@ -142,33 +180,88 @@ export default (User, RefreshToken) => {
     }
   });
 
-// GET /api/users/by-email?email=xxx
-router.get('/by-email', authenticate, async (req, res) => {
-  try {
-    const { email } = req.query;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
-    const user = await User.findOne({
-      where: { email },
-      attributes: { exclude: ['password'] }
-    });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+  // GET /api/users/by-email?email=xxx
+  router.get('/by-email', authenticate, async (req, res) => {
+    try {
+      const { email } = req.query;
+      if (!email) return res.status(400).json({ error: 'Email is required' });
+      const user = await User.findOne({
+        where: { email },
+        attributes: { exclude: ['password'] }
+      });
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      res.json(user);
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
 
-// GET /api/users — admin gets all users
-router.get('/', authenticate, requireAdmin, async (req, res) => {
-  try {
-    const users = await User.findAll({ attributes: { exclude: ['password'] } });
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
+  // GET /api/users — admin gets all users
+  router.get('/', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const users = await User.findAll({ attributes: { exclude: ['password'] } });
+      res.json(users);
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
 
+  // PATCH /api/users/profile — affiliate updates their profile and bank details
+  router.patch('/profile', authenticate, async (req, res) => {
+    try {
+      const { name, phone, bankName, accountNumber, accountName } = req.body;
+      const user = await User.findByPk(req.user.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
 
+      await user.update({
+        name: name || user.name,
+        phone: phone || user.phone,
+        bankName: bankName || user.bankName,
+        accountNumber: accountNumber || user.accountNumber,
+        accountName: accountName || user.accountName,
+      });
+
+      res.json({
+        message: 'Profile updated',
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          bankName: user.bankName,
+          accountNumber: user.accountNumber,
+          accountName: user.accountName,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // PATCH /api/users/:id/deactivate — admin deactivates an affiliate
+  router.patch('/:id/deactivate', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const user = await User.findByPk(req.params.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      await user.update({ isActive: false });
+      res.json({ message: 'User deactivated' });
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // PATCH /api/users/:id/activate — admin activates an affiliate
+  router.patch('/:id/activate', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const user = await User.findByPk(req.params.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      await user.update({ isActive: true });
+      res.json({ message: 'User activated' });
+    } catch (err) {
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
 
   return router;
 };
