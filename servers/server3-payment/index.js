@@ -11,7 +11,7 @@ import morgan from 'morgan';
 import crypto from 'crypto';
 import helmet from 'helmet';
 import axios from 'axios';
-import { DataTypes } from 'sequelize';
+import { DataTypes, Op } from 'sequelize';
 
 import { createConnection } from '../../shared/config/db.js';
 import { authenticate, requireAffiliate, requireAdmin } from '../../middleware/auth.js';
@@ -81,6 +81,68 @@ const Transaction = sequelize.define('Transaction', {
   timestamps: true
 });
 
+const Payout = sequelize.define('Payout', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  affiliateId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'affiliate_id'
+  },
+  amount: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    comment: 'Amount requested by affiliate'
+  },
+  bankName: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    field: 'bank_name'
+  },
+  accountNumber: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    field: 'account_number'
+  },
+  accountName: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    field: 'account_name'
+  },
+  status: {
+    type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+    defaultValue: 'pending'
+  },
+  processedBy: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    field: 'processed_by',
+    comment: 'Admin who approved or rejected'
+  },
+  processedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    field: 'processed_at'
+  },
+  rejectionReason: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'rejection_reason'
+  },
+  note: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'Optional note from affiliate'
+  },
+}, {
+  tableName: 'payouts',
+  underscored: true,
+  timestamps: true
+});
+
 // ===================== MIDDLEWARE =====================
 app.use(cors());
 app.use(morgan('dev'));
@@ -122,7 +184,6 @@ async function processSuccessfulPayment(reference, metadata, amount) {
     // Prevent duplicate webhook processing
     if (!txn || txn.commissionCredited) return;
 
-    // FIX: 10% commission of the payment amount
     const commission = parseFloat((amount * 0.10).toFixed(2));
 
     // Credit commission in Redis
@@ -139,10 +200,10 @@ async function processSuccessfulPayment(reference, metadata, amount) {
       commission,
     });
 
-    // FIX: include x-service-secret header when calling registration service
+    // Notify registration service
     const lbPort = process.env.LOAD_BALANCER_PORT || 3000;
     await axios.patch(
-      `http://localhost:${lbPort}/api/registrations/${metadata.registrationId}/mark-paid`,
+      `http://localhost:${lbPort}/reg/api/registrations/${metadata.registrationId}/mark-paid`,
       { paystackRef: reference, commission },
       { headers: { 'x-service-secret': process.env.INTERNAL_SERVICE_SECRET } }
     );
@@ -162,7 +223,6 @@ app.get('/health', (_, res) => res.json({ service: 'payment-service', status: 'O
 app.get('/', (_, res) => res.json({ service: 'Payment Service', status: 'running', port: PORT }));
 
 // ── POST /api/payments/initialize ─────────────────────────────
-// Affiliate initiates payment for an approved registration
 app.post('/api/payments/initialize', authenticate, requireAffiliate, async (req, res) => {
   try {
     const { registrationId, paidUserEmail, amount } = req.body;
@@ -170,9 +230,11 @@ app.post('/api/payments/initialize', authenticate, requireAffiliate, async (req,
     if (!registrationId || !paidUserEmail || !amount)
       return res.status(400).json({ error: 'registrationId, paidUserEmail and amount are required' });
 
-    // Check for duplicate — don't create two transactions for the same registration
     const existing = await Transaction.findOne({
-      where: { registrationId, paystackStatus: ['pending', 'success'] }
+      where: {
+        registrationId,
+        paystackStatus: { [Op.in]: ['pending', 'success'] }
+      }
     });
     if (existing)
       return res.status(409).json({ error: 'Payment already initialized for this registration' });
@@ -181,11 +243,8 @@ app.post('/api/payments/initialize', authenticate, requireAffiliate, async (req,
       'https://api.paystack.co/transaction/initialize',
       {
         email: paidUserEmail,
-        amount: Math.round(amount * 100), // Paystack expects kobo
-        metadata: {
-          registrationId,
-          affiliateId: req.user.id,
-        },
+        amount: Math.round(amount * 100),
+        metadata: { registrationId, affiliateId: req.user.id },
       },
       { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
     );
@@ -197,7 +256,7 @@ app.post('/api/payments/initialize', authenticate, requireAffiliate, async (req,
       affiliateId: req.user.id,
       paidUserEmail,
       amount,
-      commission: parseFloat((amount * 0.10).toFixed(2)), // 10%
+      commission: parseFloat((amount * 0.10).toFixed(2)),
       paystackRef: reference,
       paystackStatus: 'pending',
     });
@@ -210,7 +269,6 @@ app.post('/api/payments/initialize', authenticate, requireAffiliate, async (req,
 });
 
 // ── GET /api/payments/verify/:reference ───────────────────────
-// Verify payment after Paystack redirect (before webhook fires)
 app.get('/api/payments/verify/:reference', authenticate, async (req, res) => {
   try {
     const { reference } = req.params;
@@ -298,10 +356,8 @@ app.get('/api/commissions/balance', authenticate, requireAffiliate, async (req, 
 app.get('/api/commissions/leaderboard', authenticate, async (req, res) => {
   try {
     const redis = await getRedisClient();
-    // Get top 10 affiliates by commission earned (highest first)
     const results = await redis.zrevrange(KEYS.leaderboard(), 0, 9, 'WITHSCORES');
 
-    // Results come back as [id, score, id, score, ...]
     const leaderboard = [];
     for (let i = 0; i < results.length; i += 2) {
       leaderboard.push({
@@ -314,6 +370,188 @@ app.get('/api/commissions/leaderboard', authenticate, async (req, res) => {
     res.json(leaderboard);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// ===================== PAYOUT ROUTES =====================
+
+// ── POST /api/payouts/request — affiliate requests payout ─────
+app.post('/api/payouts/request', authenticate, requireAffiliate, async (req, res) => {
+  try {
+    const { amount, bankName, accountNumber, accountName, note } = req.body;
+
+    if (!amount || !bankName || !accountNumber || !accountName)
+      return res.status(400).json({ error: 'amount, bankName, accountNumber and accountName are required' });
+
+    // Check affiliate has enough balance
+    const redis = await getRedisClient();
+    const balance = parseFloat(await redis.get(KEYS.affiliateBalance(req.user.id)) || '0');
+
+    if (amount > balance)
+      return res.status(400).json({
+        error: `Insufficient balance. Available: ₦${balance.toFixed(2)}`
+      });
+
+    // Check no pending payout already exists
+    const pendingPayout = await Payout.findOne({
+      where: { affiliateId: req.user.id, status: 'pending' }
+    });
+    if (pendingPayout)
+      return res.status(409).json({ error: 'You already have a pending payout request' });
+
+    const payout = await Payout.create({
+      affiliateId: req.user.id,
+      amount,
+      bankName,
+      accountNumber,
+      accountName,
+      note: note || null,
+      status: 'pending',
+    });
+
+    res.status(201).json({
+      message: 'Payout request submitted — pending admin approval',
+      payout,
+    });
+  } catch (err) {
+    console.error('[PAY] Payout request error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/payouts/my — affiliate's payout history ──────────
+app.get('/api/payouts/my', authenticate, requireAffiliate, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await Payout.findAndCountAll({
+      where: { affiliateId: req.user.id },
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+    });
+
+    res.json({
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
+      payouts: rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/payouts/pending — admin: all pending payouts ──────
+app.get('/api/payouts/pending', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await Payout.findAndCountAll({
+      where: { status: 'pending' },
+      order: [['createdAt', 'ASC']], // oldest first for fairness
+      limit,
+      offset,
+    });
+
+    res.json({
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
+      payouts: rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/payouts/all — admin: all payouts ──────────────────
+app.get('/api/payouts/all', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+    const { status } = req.query;
+
+    const where = status ? { status } : {};
+
+    const { count, rows } = await Payout.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+    });
+
+    res.json({
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
+      payouts: rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/payouts/:id/approve — admin approves payout ─────
+app.patch('/api/payouts/:id/approve', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const payout = await Payout.findByPk(req.params.id);
+    if (!payout) return res.status(404).json({ error: 'Payout not found' });
+    if (payout.status !== 'pending')
+      return res.status(400).json({ error: `Cannot approve — status is ${payout.status}` });
+
+    // Deduct from affiliate's Redis balance
+    const redis = await getRedisClient();
+    const balance = parseFloat(await redis.get(KEYS.affiliateBalance(payout.affiliateId)) || '0');
+
+    if (parseFloat(payout.amount) > balance)
+      return res.status(400).json({ error: 'Affiliate balance is insufficient for this payout' });
+
+    await redis.incrbyfloat(KEYS.affiliateBalance(payout.affiliateId), -parseFloat(payout.amount));
+
+    await payout.update({
+      status: 'approved',
+      processedBy: req.user.id,
+      processedAt: new Date(),
+    });
+
+    res.json({
+      message: 'Payout approved and balance deducted',
+      payout,
+    });
+  } catch (err) {
+    console.error('[PAY] Payout approve error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/payouts/:id/reject — admin rejects payout ───────
+app.patch('/api/payouts/:id/reject', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const payout = await Payout.findByPk(req.params.id);
+    if (!payout) return res.status(404).json({ error: 'Payout not found' });
+    if (payout.status !== 'pending')
+      return res.status(400).json({ error: `Cannot reject — status is ${payout.status}` });
+
+    await payout.update({
+      status: 'rejected',
+      rejectionReason: reason || null,
+      processedBy: req.user.id,
+      processedAt: new Date(),
+    });
+
+    res.json({
+      message: 'Payout rejected',
+      payout,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
