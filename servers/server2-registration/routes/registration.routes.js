@@ -34,7 +34,34 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
-export default (Registration, Program) => {
+export default (Registration, Program, User) => {
+
+  // ── POST /api/internal/sync-user — called by auth service only ─
+  router.post('/internal/sync-user', async (req, res) => {
+    try {
+      const serviceSecret = req.headers['x-service-secret'];
+      if (!serviceSecret || serviceSecret !== process.env.INTERNAL_SERVICE_SECRET)
+        return res.status(401).json({ error: 'Unauthorized' });
+
+      const { id, name, email, password, phone, role, isActive } = req.body;
+
+      await User.upsert({
+        id,
+        name,
+        email,
+        password,
+        phone: phone || null,
+        role,
+        isActive: isActive ?? true,
+      });
+
+      console.log(`[REG] ✓ User synced: ${email}`);
+      res.json({ message: 'User synced successfully' });
+    } catch (err) {
+      console.error('[REG] User sync error:', err.message);
+      res.status(500).json({ error: 'Sync failed' });
+    }
+  });
 
   // ── POST /api/registrations — affiliate registers a student ────
   router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), async (req, res) => {
@@ -52,7 +79,6 @@ export default (Registration, Program) => {
       if (!program || !program.isActive)
         return res.status(404).json({ error: 'Program not found or inactive' });
 
-      // FIX: use Op.in for array check
       const duplicate = await Registration.findOne({
         where: {
           regNumber,
@@ -87,7 +113,7 @@ export default (Registration, Program) => {
         registration,
         note: program.type === 'siwes'
           ? 'No commission for SIWES registrations'
-            : `Commission of ₦${(parseFloat(program.monthlyFee) * 0.10).toFixed(2)} will be earned after approval`,
+          : `Commission of ₦${(parseFloat(program.monthlyFee) * 0.10).toFixed(2)} will be earned after approval`,
       });
     } catch (err) {
       console.error(err);
@@ -122,7 +148,6 @@ export default (Registration, Program) => {
         Registration.count({ where: { affiliateId, status: 'rejected' } }),
       ]);
 
-      // Sum total commission earned from paid registrations
       const commissionResult = await Registration.findAll({
         where: { affiliateId, status: 'paid' },
         attributes: ['commissionEarned'],
@@ -215,7 +240,6 @@ export default (Registration, Program) => {
       });
       if (!reg) return res.status(404).json({ error: 'Registration not found' });
 
-      // Affiliates can only view their own registrations
       if (req.user.role === 'affiliate' && reg.affiliateId !== req.user.id)
         return res.status(403).json({ error: 'Access denied' });
 
@@ -235,10 +259,9 @@ export default (Registration, Program) => {
       if (reg.status !== 'pending_approval')
         return res.status(400).json({ error: `Cannot approve — status is ${reg.status}` });
 
-      // FIX: calculate commission from program on approval
       const commission = reg.Program?.type === 'siwes'
         ? 0
-        : parseFloat(reg.amount) * 0.10; // 10% commissions
+        : parseFloat(reg.amount) * 0.10;
 
       await reg.update({
         status: 'approved',
@@ -280,7 +303,7 @@ export default (Registration, Program) => {
       if (!reg) return res.status(404).json({ error: 'Registration not found' });
       if (reg.affiliateId !== req.user.id)
         return res.status(403).json({ error: 'Access denied' });
-      if (!['pending_approval'].includes(reg.status))
+      if (reg.status !== 'pending_approval')
         return res.status(400).json({ error: `Cannot cancel — status is ${reg.status}` });
 
       await reg.update({ status: 'cancelled' });
@@ -291,7 +314,6 @@ export default (Registration, Program) => {
   });
 
   // ── PATCH /api/registrations/:id/mark-paid — payment service ───
-  // FIX: secured with internal service secret header
   router.patch('/:id/mark-paid', async (req, res) => {
     try {
       const serviceSecret = req.headers['x-service-secret'];

@@ -44,8 +44,12 @@ const startServer = async () => {
     Registration.belongsTo(Program, { foreignKey: 'program_id' });
     Registration.belongsTo(User, { foreignKey: 'affiliate_id', as: 'affiliate' });
 
-    app.use('/api/programs', programRoutes(Program));
-    app.use('/api/registrations', registrationRoutes(Registration, Program));
+app.use('/api/programs', programRoutes(Program));
+
+const regRouter = registrationRoutes(Registration, Program, User);
+app.use('/api/registrations', regRouter);
+app.use('/api/internal', regRouter);
+
 
     await sequelize.authenticate();
     await sequelize.sync({ alter: process.env.NODE_ENV === 'development' });
