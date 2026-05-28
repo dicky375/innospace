@@ -53,6 +53,7 @@ export const SERVER_REGISTRY = [
       'PATCH  /api/registrations/:id/reject',
       'PATCH  /api/registrations/:id/cancel',
       'PATCH  /api/registrations/:id/mark-paid',
+      
     ],
   },
   {
@@ -67,6 +68,12 @@ export const SERVER_REGISTRY = [
       'GET  /api/commissions/balance',
       'GET  /api/commissions/leaderboard',
       'POST /api/webhook/paystack',
+      'POST /api/payouts/request',
+      'GET  /api/payouts/my',
+      'GET  /api/payouts/pending',
+      'GET  /api/payouts/all',
+      'PATCH /api/payouts/:id/approve',
+      'PATCH /api/payouts/:id/reject',
     ],
   },
 ];
