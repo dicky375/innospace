@@ -5,9 +5,23 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { Op } from 'sequelize';
 import { authenticate, requireAffiliate, requireAdmin } from '../../../middleware/auth.js';
+import { getRedisClient } from '../../../shared/config/redis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
+
+const COMMISSION_RATE_KEY = 'config:commission_rate';
+const DEFAULT_COMMISSION_RATE = 0.10;
+
+async function getCommissionRate() {
+  try {
+    const redis = await getRedisClient();
+    const stored = await redis.get(COMMISSION_RATE_KEY);
+    return stored ? parseFloat(stored) : DEFAULT_COMMISSION_RATE;
+  } catch {
+    return DEFAULT_COMMISSION_RATE;
+  }
+}
 
 // ── Multer setup ───────────────────────────────────────────────────
 const uploadDir = path.resolve(__dirname, '../uploads');
@@ -31,13 +45,13 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 export default (Registration, Program, User) => {
 
   // ── POST /api/internal/sync-user — called by auth service only ─
-  router.post('/internal/sync-user', async (req, res) => {
+  router.post('/sync-user', async (req, res) => {
     try {
       const serviceSecret = req.headers['x-service-secret'];
       if (!serviceSecret || serviceSecret !== process.env.INTERNAL_SERVICE_SECRET)
@@ -89,6 +103,10 @@ export default (Registration, Program, User) => {
       if (duplicate)
         return res.status(409).json({ error: 'Student already registered for this program' });
 
+      const rate = await getCommissionRate();
+      const fee = parseFloat(program.monthlyFee);
+      const commission = program.type === 'siwes' ? 0 : fee * rate;
+
       const registration = await Registration.create({
         programId,
         affiliateId,
@@ -103,7 +121,7 @@ export default (Registration, Program, User) => {
         supervisorName,
         siwesFormPath: req.file ? req.file.filename : null,
         siwesFormName: req.file ? req.file.originalname : null,
-        amount: program.monthlyFee,
+        amount: fee,
         status: 'pending_approval',
         commissionEarned: 0,
       });
@@ -113,7 +131,7 @@ export default (Registration, Program, User) => {
         registration,
         note: program.type === 'siwes'
           ? 'No commission for SIWES registrations'
-          : `Commission of ₦${(parseFloat(program.monthlyFee) * 0.10).toFixed(2)} will be earned after approval`,
+          : `Commission of ₦${commission.toFixed(2)} (${(rate * 100).toFixed(0)}%) will be earned after approval`,
       });
     } catch (err) {
       console.error(err);
@@ -178,7 +196,7 @@ export default (Registration, Program, User) => {
 
       const { count, rows } = await Registration.findAndCountAll({
         where: { status: 'pending_approval' },
-        include: [{ model: Program, attributes: ['id', 'title', 'type'] }],
+        include: [{ model: Program, attributes: ['id', 'title', 'type', 'monthlyFee'] }],
         order: [['createdAt', 'DESC']],
         limit,
         offset,
@@ -259,9 +277,11 @@ export default (Registration, Program, User) => {
       if (reg.status !== 'pending_approval')
         return res.status(400).json({ error: `Cannot approve — status is ${reg.status}` });
 
+      // Use current commission rate from Redis
+      const rate = await getCommissionRate();
       const commission = reg.Program?.type === 'siwes'
         ? 0
-        : parseFloat(reg.amount) * 0.10;
+        : parseFloat(reg.amount) * rate;
 
       await reg.update({
         status: 'approved',
@@ -274,6 +294,7 @@ export default (Registration, Program, User) => {
         message: 'Registration approved',
         registration: reg,
         commissionAssigned: commission,
+        commissionRate: `${(rate * 100).toFixed(0)}%`,
       });
     } catch (err) {
       res.status(500).json({ error: 'Server error' });

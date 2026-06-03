@@ -74,6 +74,8 @@ export const SERVER_REGISTRY = [
       'GET  /api/payouts/all',
       'PATCH /api/payouts/:id/approve',
       'PATCH /api/payouts/:id/reject',
+      'GET  /api/config/commission',
+'     PATCH /api/config/commission',
     ],
   },
 ];
