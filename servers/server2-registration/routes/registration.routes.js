@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { Op } from 'sequelize';
+import { v2 as cloudinary } from 'cloudinary';
 import { authenticate, requireAffiliate, requireAdmin } from '../../../middleware/auth.js';
 import { getRedisClient } from '../../../shared/config/redis.js';
 
@@ -12,6 +13,13 @@ const router = Router();
 
 const COMMISSION_RATE_KEY = 'config:commission_rate';
 const DEFAULT_COMMISSION_RATE = 0.10;
+
+// ── Cloudinary config ──────────────────────────────────────────
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
 
 async function getCommissionRate() {
   try {
@@ -23,8 +31,27 @@ async function getCommissionRate() {
   }
 }
 
-// ── Multer setup ───────────────────────────────────────────────────
-const uploadDir = path.resolve(__dirname, '../uploads');
+// ── Upload file to Cloudinary ──────────────────────────────────
+async function uploadToCloudinary(filePath, originalName) {
+  const result = await cloudinary.uploader.upload(filePath, {
+    folder: 'innospace/siwes-forms',
+    resource_type: 'auto', // handles PDF, images, docs
+    public_id: `${Date.now()}-${originalName.replace(/\s+/g, '_')}`,
+    use_filename: true,
+    unique_filename: true,
+  });
+
+  // Delete temp file after upload
+  fs.unlink(filePath, () => {});
+
+  return {
+    url: result.secure_url,
+    publicId: result.public_id,
+  };
+}
+
+// ── Multer — temp storage before Cloudinary upload ─────────────
+const uploadDir = path.resolve(__dirname, '../uploads/temp');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -45,7 +72,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
 export default (Registration, Program, User) => {
@@ -107,6 +134,21 @@ export default (Registration, Program, User) => {
       const fee = parseFloat(program.monthlyFee);
       const commission = program.type === 'siwes' ? 0 : fee * rate;
 
+      // Upload file to Cloudinary if provided
+      let siwesFormPath = null;
+      let siwesFormName = null;
+
+      if (req.file) {
+        try {
+          const uploaded = await uploadToCloudinary(req.file.path, req.file.originalname);
+          siwesFormPath = uploaded.url;       // Cloudinary URL stored in DB
+          siwesFormName = req.file.originalname;
+        } catch (uploadErr) {
+          console.error('[REG] Cloudinary upload failed:', uploadErr.message);
+          return res.status(500).json({ error: 'File upload failed. Please try again.' });
+        }
+      }
+
       const registration = await Registration.create({
         programId,
         affiliateId,
@@ -119,8 +161,8 @@ export default (Registration, Program, User) => {
         regNumber,
         hodName,
         supervisorName,
-        siwesFormPath: req.file ? req.file.filename : null,
-        siwesFormName: req.file ? req.file.originalname : null,
+        siwesFormPath,
+        siwesFormName,
         amount: fee,
         status: 'pending_approval',
         commissionEarned: 0,
@@ -242,9 +284,9 @@ export default (Registration, Program, User) => {
     }
   });
 
-  // ── GET /api/registrations/uploads/:filename — serve files ─────
+  // ── GET /api/registrations/uploads/:filename — legacy local files
   router.get('/uploads/:filename', authenticate, (req, res) => {
-    const filePath = path.resolve(uploadDir, req.params.filename);
+    const filePath = path.resolve(__dirname, '../uploads', req.params.filename);
     if (!fs.existsSync(filePath))
       return res.status(404).json({ error: 'File not found' });
     res.sendFile(filePath);
@@ -277,7 +319,6 @@ export default (Registration, Program, User) => {
       if (reg.status !== 'pending_approval')
         return res.status(400).json({ error: `Cannot approve — status is ${reg.status}` });
 
-      // Use current commission rate from Redis
       const rate = await getCommissionRate();
       const commission = reg.Program?.type === 'siwes'
         ? 0
