@@ -113,9 +113,8 @@ export default (Registration, Program, User) => {
         course, department, regNumber, hodName, supervisorName,
       } = req.body;
 
-      if (!programId || !studentName || !studentPhone || !course || !department || !regNumber || !hodName || !supervisorName)
-        return res.status(400).json({ error: 'All student details are required' });
-
+      if (!programId || !studentName || !studentPhone || !course || !department || !regNumber)
+        return res.status(400).json({ error: 'programId, studentName, studentPhone, course, department and regNumber are required' });
       const program = await Program.findByPk(programId);
       if (!program || !program.isActive)
         return res.status(404).json({ error: 'Program not found or inactive' });
