@@ -64,12 +64,12 @@ export default (sequelize) => {
 
     hodName: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
       field: 'hod_name'
     },
     supervisorName: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
       field: 'supervisor_name'
     },
 
@@ -84,6 +84,16 @@ export default (sequelize) => {
       allowNull: true,
       field: 'siwes_form_name'
     },
+    siwesFormData: {
+  type: DataTypes.BLOB('long'),
+  allowNull: true,
+  field: 'siwes_form_data'
+},
+siwesFormMimetype: {
+  type: DataTypes.STRING,
+  allowNull: true,
+  field: 'siwes_form_mimetype'
+},
 
     // Status & Workflow
     status: {

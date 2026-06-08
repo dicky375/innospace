@@ -4,7 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { Op } from 'sequelize';
-import { v2 as cloudinary } from 'cloudinary';
 import { authenticate, requireAffiliate, requireAdmin } from '../../../middleware/auth.js';
 import { getRedisClient } from '../../../shared/config/redis.js';
 
@@ -13,13 +12,6 @@ const router = Router();
 
 const COMMISSION_RATE_KEY = 'config:commission_rate';
 const DEFAULT_COMMISSION_RATE = 0.10;
-
-// ── Cloudinary config ──────────────────────────────────────────
-cloudinary.config({
-  cloud_name: process.env.CLOUD_NAME,
-  api_key: process.env.API_KEY,
-  api_secret: process.env.API_SECRET,
-});
 
 async function getCommissionRate() {
   try {
@@ -31,37 +23,7 @@ async function getCommissionRate() {
   }
 }
 
-// ── Upload file to Cloudinary ──────────────────────────────────
-async function uploadToCloudinary(filePath, originalName) {
-  const result = await cloudinary.uploader.upload(filePath, {
-    folder: 'innospace/siwes-forms',
-    resource_type: 'auto', // handles PDF, images, docs
-    public_id: `${Date.now()}-${originalName.replace(/\s+/g, '_')}`,
-    use_filename: true,
-    unique_filename: true,
-  });
-
-  // Delete temp file after upload
-  fs.unlink(filePath, () => {});
-
-  return {
-    url: result.secure_url,
-    publicId: result.public_id,
-  };
-}
-
-// ── Multer — temp storage before Cloudinary upload ─────────────
-const uploadDir = path.resolve(__dirname, '../uploads/temp');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${unique}${path.extname(file.originalname)}`);
-  },
-});
-
+// ── Multer — memory storage so we can save to DB ───────────────
 const fileFilter = (req, file, cb) => {
   const allowed = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
   const ext = path.extname(file.originalname).toLowerCase();
@@ -70,10 +32,24 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(), // store in memory as Buffer
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
+
+// ── Get MIME type from extension ───────────────────────────────
+function getMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const types = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+  };
+  return types[ext] || 'application/octet-stream';
+}
 
 export default (Registration, Program, User) => {
 
@@ -115,6 +91,7 @@ export default (Registration, Program, User) => {
 
       if (!programId || !studentName || !studentPhone || !course || !department || !regNumber)
         return res.status(400).json({ error: 'programId, studentName, studentPhone, course, department and regNumber are required' });
+
       const program = await Program.findByPk(programId);
       if (!program || !program.isActive)
         return res.status(404).json({ error: 'Program not found or inactive' });
@@ -133,19 +110,15 @@ export default (Registration, Program, User) => {
       const fee = parseFloat(program.monthlyFee);
       const commission = program.type === 'siwes' ? 0 : fee * rate;
 
-      // Upload file to Cloudinary if provided
-      let siwesFormPath = null;
+      // Store file as binary in DB if provided
+      let siwesFormData = null;
       let siwesFormName = null;
+      let siwesFormMimetype = null;
 
       if (req.file) {
-        try {
-          const uploaded = await uploadToCloudinary(req.file.path, req.file.originalname);
-          siwesFormPath = uploaded.url;       // Cloudinary URL stored in DB
-          siwesFormName = req.file.originalname;
-        } catch (uploadErr) {
-          console.error('[REG] Cloudinary upload failed:', uploadErr.message);
-          return res.status(500).json({ error: 'File upload failed. Please try again.' });
-        }
+        siwesFormData = req.file.buffer;
+        siwesFormName = req.file.originalname;
+        siwesFormMimetype = getMimeType(req.file.originalname);
       }
 
       const registration = await Registration.create({
@@ -158,18 +131,24 @@ export default (Registration, Program, User) => {
         course,
         department,
         regNumber,
-        hodName,
-        supervisorName,
-        siwesFormPath,
+        hodName: hodName || null,
+        supervisorName: supervisorName || null,
+        siwesFormPath: siwesFormName,  // store original filename for display
         siwesFormName,
+        siwesFormData,
+        siwesFormMimetype,
         amount: fee,
         status: 'pending_approval',
         commissionEarned: 0,
       });
 
+      // Don't return binary data in response
+      const regJson = registration.toJSON();
+      delete regJson.siwesFormData;
+
       res.status(201).json({
         message: 'Registration submitted — pending admin approval',
-        registration,
+        registration: regJson,
         note: program.type === 'siwes'
           ? 'No commission for SIWES registrations'
           : `Commission of ₦${commission.toFixed(2)} (${(rate * 100).toFixed(0)}%) will be earned after approval`,
@@ -180,11 +159,45 @@ export default (Registration, Program, User) => {
     }
   });
 
+  // ── GET /api/registrations/file/:id — serve file from DB ──────
+  router.get('/file/:id', async (req, res) => {
+  try {
+    // Accept token from query param for browser direct access
+    const token = req.headers['authorization']?.split(' ')[1] || req.query.token;
+    
+    if (!token) return res.status(401).json({ error: 'Token required' });
+
+    const jwt = await import('jsonwebtoken');
+    let decoded;
+    try {
+      decoded = jwt.default.verify(token, process.env.JWT_ACCESS_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const reg = await Registration.findByPk(req.params.id, {
+      attributes: ['id', 'siwesFormData', 'siwesFormMimetype', 'siwesFormName', 'affiliateId'],
+    });
+
+    if (!reg) return res.status(404).json({ error: 'Registration not found' });
+    if (!reg.siwesFormData) return res.status(404).json({ error: 'No file attached' });
+
+    if (decoded.role === 'affiliate' && reg.affiliateId !== decoded.id)
+      return res.status(403).json({ error: 'Access denied' });
+
+    res.set('Content-Type', reg.siwesFormMimetype || 'application/octet-stream');
+    res.set('Content-Disposition', `inline; filename="${reg.siwesFormName}"`);
+    res.send(reg.siwesFormData);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
   // ── GET /api/registrations/my — affiliate's own registrations ──
   router.get('/my', authenticate, requireAffiliate, async (req, res) => {
     try {
       const registrations = await Registration.findAll({
         where: { affiliateId: req.user.id },
+        attributes: { exclude: ['siwesFormData'] }, // don't send binary data
         include: [{ model: Program, attributes: ['id', 'title', 'type', 'monthlyFee', 'affiliateCommission'] }],
         order: [['createdAt', 'DESC']],
       });
@@ -237,6 +250,7 @@ export default (Registration, Program, User) => {
 
       const { count, rows } = await Registration.findAndCountAll({
         where: { status: 'pending_approval' },
+        attributes: { exclude: ['siwesFormData'] },
         include: [{ model: Program, attributes: ['id', 'title', 'type', 'monthlyFee'] }],
         order: [['createdAt', 'DESC']],
         limit,
@@ -266,6 +280,7 @@ export default (Registration, Program, User) => {
 
       const { count, rows } = await Registration.findAndCountAll({
         where,
+        attributes: { exclude: ['siwesFormData'] },
         include: [{ model: Program, attributes: ['id', 'title', 'type'] }],
         order: [['createdAt', 'DESC']],
         limit,
@@ -295,6 +310,7 @@ export default (Registration, Program, User) => {
   router.get('/:id', authenticate, async (req, res) => {
     try {
       const reg = await Registration.findByPk(req.params.id, {
+        attributes: { exclude: ['siwesFormData'] },
         include: [{ model: Program }],
       });
       if (!reg) return res.status(404).json({ error: 'Registration not found' });
@@ -312,6 +328,7 @@ export default (Registration, Program, User) => {
   router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
     try {
       const reg = await Registration.findByPk(req.params.id, {
+        attributes: { exclude: ['siwesFormData'] },
         include: [{ model: Program }],
       });
       if (!reg) return res.status(404).json({ error: 'Registration not found' });
