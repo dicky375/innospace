@@ -21,18 +21,22 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 const app = express();
 const PORT = process.env.SERVER2_PORT || 3002;
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  credentials: true,
+}));
 app.use(express.json());
 app.use(helmet());
 app.use(morgan('dev'));
 app.use('/uploads', express.static(uploadDir));
 
 const COMMISSION_RATE_KEY = 'config:commission_rate';
-const DEFAULT_COMMISSION_RATE = 0.10; // 10%
+const DEFAULT_COMMISSION_RATE = 0.10;
 
 const startServer = async () => {
   try {
     const sequelize = createConnection({
+      url: process.env.DATABASE_REG_URL,
       name: process.env.DB_REG_NAME,
       user: process.env.DB_REG_USER,
       pass: process.env.DB_REG_PASS,
@@ -48,7 +52,6 @@ const startServer = async () => {
     Registration.belongsTo(Program, { foreignKey: 'program_id' });
     Registration.belongsTo(User, { foreignKey: 'affiliate_id', as: 'affiliate' });
 
-    // ── Routes ─────────────────────────────────────────────────
     app.use('/api/programs', programRoutes(Program));
 
     const regRouter = registrationRoutes(Registration, Program, User);
@@ -78,7 +81,6 @@ const startServer = async () => {
           Program.count({ where: { isActive: true } }),
         ]);
 
-        // Get current commission rate from Redis
         const redis = await getRedisClient();
         const storedRate = await redis.get(COMMISSION_RATE_KEY);
         const commissionRate = storedRate ? parseFloat(storedRate) : DEFAULT_COMMISSION_RATE;
@@ -98,7 +100,7 @@ const startServer = async () => {
           programs: {
             active: totalPrograms,
           },
-          commissionRate: (commissionRate * 100).toFixed(0), // return as percentage e.g. "10"
+          commissionRate: (commissionRate * 100).toFixed(0),
         });
       } catch (err) {
         console.error('[REG] Stats error:', err.message);
@@ -106,19 +108,19 @@ const startServer = async () => {
       }
     });
 
-    // ── GET /api/config/commission — get current rate ──────────
+    // ── GET /api/config/commission ─────────────────────────────
     app.get('/api/config/commission', authenticate, async (req, res) => {
       try {
         const redis = await getRedisClient();
         const storedRate = await redis.get(COMMISSION_RATE_KEY);
         const rate = storedRate ? parseFloat(storedRate) : DEFAULT_COMMISSION_RATE;
-        res.json({ commissionRate: (rate * 100).toFixed(1) }); // e.g. "10.0"
+        res.json({ commissionRate: (rate * 100).toFixed(1) });
       } catch (err) {
         res.status(500).json({ error: 'Server error' });
       }
     });
 
-    // ── PATCH /api/config/commission — admin updates rate ──────
+    // ── PATCH /api/config/commission ───────────────────────────
     app.patch('/api/config/commission', authenticate, requireAdmin, async (req, res) => {
       try {
         const { commissionRate } = req.body;
@@ -131,7 +133,6 @@ const startServer = async () => {
         if (rate < 1 || rate > 50)
           return res.status(400).json({ error: 'Commission rate must be between 1% and 50%' });
 
-        // Store as decimal e.g. 10% → 0.10
         const redis = await getRedisClient();
         await redis.set(COMMISSION_RATE_KEY, (rate / 100).toString());
 
@@ -146,7 +147,6 @@ const startServer = async () => {
       }
     });
 
-    // ── Health & root ──────────────────────────────────────────
     app.get('/health', (_, res) =>
       res.json({ service: 'registration-service', status: 'UP' })
     );
@@ -161,7 +161,7 @@ const startServer = async () => {
       console.log(`\n📋 REGISTRATION SERVICE ACTIVE`);
       console.log(`-----------------------------------`);
       console.log(`URL: http://localhost:${PORT}`);
-      console.log(`DB:  ${process.env.DB_REG_NAME}`);
+      console.log(`DB:  ${process.env.DB_REG_NAME || 'Neon (production)'}`);
       console.log(`-----------------------------------\n`);
     });
   } catch (err) {
