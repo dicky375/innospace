@@ -7,8 +7,7 @@ import morgan from 'morgan';
 import helmet from 'helmet';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-
+dotenv.config();
 import { createConnection } from '../../shared/config/db.js';
 import defineUser from '../../shared/models/User.js';
 import defineRefreshToken from '../../shared/models/RefreshToken.js';
