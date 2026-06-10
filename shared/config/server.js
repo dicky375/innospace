@@ -23,7 +23,7 @@ export const SERVER_REGISTRY = [
   {
     name: 'Auth Service',
     prefix: '/auth',
-    target: `http://localhost:${process.env.SERVER1_PORT || 3001}`,
+    target: process.env.AUTH_SERVICE_URL || `http://localhost:${process.env.SERVER1_PORT || 3001}`,
     routes: [
       'POST /api/auth/register',
       'POST /api/auth/login',
@@ -36,7 +36,7 @@ export const SERVER_REGISTRY = [
   {
     name: 'Registration Service',
     prefix: '/reg',
-    target: `http://localhost:${process.env.SERVER2_PORT || 3002}`,
+    target: process.env.REGISTRATION_SERVICE_URL || `http://localhost:${process.env.SERVER2_PORT || 3002}`,
     routes: [
       'GET    /api/programs',
       'POST   /api/programs',
