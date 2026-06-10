@@ -46,31 +46,40 @@ const server = http.createServer((req, res) => {
       }));
     }
 
-    const targetService = getTargetService(req.url);
+    // Preserve the original URL
+const originalUrl = req.url;
 
-    if (!targetService) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({
-        success: false,
-        error: 'Not Found',
-        message: `No service registered for ${req.url}`
-      }));
-    }
+// Find the target service
+const targetService = getTargetService(originalUrl);
 
-    // Path Rewrite: Strips the prefix if it exists
-    const originalPath = req.url;
-    const prefix = targetService.prefix || '';
-    const rewrittenPath = req.url.startsWith(prefix) 
-      ? req.url.replace(prefix, '') || '/' 
-      : req.url;
-    
-    req.url = rewrittenPath;
+if (!targetService) {
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  return res.end(
+    JSON.stringify({
+      success: false,
+      error: 'Not Found',
+      message: `No service registered for ${originalUrl}`,
+    })
+  );
+}
 
-    console.log(`[LB] ${req.method} ${originalPath} → ${targetService.name}${rewrittenPath}`);
-    proxy.web(req, res, { target: targetService.target });
+// Remove only the service prefix
+const rewrittenPath =
+  originalUrl.slice(targetService.prefix.length) || '/';
+
+// Forward using the rewritten path
+req.url = rewrittenPath;
+
+console.log(
+  `[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`
+);
+
+proxy.web(req, res, {
+  target: targetService.target,
+  changeOrigin: true,
+});
   });
 });
-
 
 server.listen(PORT, HOST, () => {
   console.clear();
