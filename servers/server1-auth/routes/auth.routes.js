@@ -31,30 +31,42 @@ export default (User, RefreshToken) => {
   }
 
   // Sync new user to registration service so foreign key constraints work
-  async function syncUserToRegistrationService(user) {
-    try {
-      const regPort = process.env.SERVER2_PORT || 3002;
-      await axios.post(
-        `http://localhost:${regPort}/api/internal/sync-user`,
-        {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          password: user.password,
-          phone: user.phone,
-          role: user.role,
-          isActive: user.isActive,
+  // Sync new user to registration service so foreign key constraints work
+async function syncUserToRegistrationService(user) {
+  try {
+    const registrationServiceUrl =
+      process.env.REGISTRATION_SERVICE_URL ||
+      `http://localhost:${process.env.SERVER2_PORT || 3002}`;
+
+    await axios.post(
+      `${registrationServiceUrl}/api/internal/sync-user`,
+      {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        password: user.password,
+        phone: user.phone,
+        role: user.role,
+        isActive: user.isActive,
+      },
+      {
+        headers: {
+          'x-service-secret': process.env.INTERNAL_SERVICE_SECRET,
         },
-        {
-          headers: { 'x-service-secret': process.env.INTERNAL_SERVICE_SECRET },
-        }
-      );
-      console.log(`[AUTH] ✓ User synced to registration service: ${user.email}`);
-    } catch (err) {
-      // Don't fail registration if sync fails — log it and move on
-      console.error(`[AUTH] ✗ Failed to sync user to registration service:`, err.message);
-    }
+      }
+    );
+
+    console.log(
+      `[AUTH] ✓ User synced to registration service: ${user.email}`
+    );
+  } catch (err) {
+    // Don't fail registration if sync fails — log it and move on
+    console.error(
+      `[AUTH] ✗ Failed to sync user to registration service:`,
+      err.response?.data || err.message
+    );
   }
+}
 
   // POST /api/auth/register
   router.post('/register', async (req, res) => {
