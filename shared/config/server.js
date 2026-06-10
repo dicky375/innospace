@@ -59,7 +59,9 @@ export const SERVER_REGISTRY = [
   {
     name: 'Payment Service',
     prefix: '/pay',
-    target: `http://localhost:${process.env.SERVER3_PORT || 3003}`,
+    target:
+  process.env.PAYMENT_SERVICE_URL ||
+  `http://localhost:${process.env.SERVER3_PORT || 3003}`,
     routes: [
       'POST /api/payments/initialize',
       'GET  /api/payments/verify/:reference',
