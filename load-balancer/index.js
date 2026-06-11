@@ -1,11 +1,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
-const app = express();
 import http from 'http';
 import httpProxy from 'http-proxy';
 import morgan from 'morgan';
 import { SERVER_REGISTRY, getTargetService } from '../shared/config/server.js';
-import express from 'express';
 
 const PORT = process.env.LOAD_BALANCER_PORT || 3000;
 const HOST = '0.0.0.0';
@@ -47,33 +45,37 @@ const server = http.createServer((req, res) => {
     });
   }
 
-  // 2. Find the target service IMMEDIATELY before reading streams
-  const originalUrl = req.url;
-  const targetService = getTargetService(originalUrl);
+ // Find the target service
+const originalUrl = req.url;
+const targetService = getTargetService(originalUrl);
 
-  if (!targetService) {
-    return logger(req, res, () => {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({
-        success: false,
-        error: 'Not Found',
-        message: `No service registered for ${originalUrl}`,
-      }));
-    });
-  }
+if (!targetService) {
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  return res.end(
+    JSON.stringify({
+      success: false,
+      error: 'Not Found',
+      message: `No service registered for ${originalUrl}`, // Fixed: uses originalUrl
+    })
+  );
+}
 
-  // 3. Rewrite path and forward immediately (Preserves the POST body stream)
-  const rewrittenPath = originalUrl.slice(targetService.prefix.length) || '/';
-  req.url = rewrittenPath;
+// Calculate the rewritten path safely without mutating req.url early
+const rewrittenPath = originalUrl.slice(targetService.prefix.length) || '/';
 
-  console.log(`[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`);
+console.log(
+  `[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`
+);
 
-  // Forward right away!
-  proxy.web(req, res, {
-    target: targetService.target,
-    changeOrigin: true
-  });
+// Forward using the rewritten path variable explicitly
+proxy.web(req, res, {
+  target: targetService.target,
+  changeOrigin: true,
+  toProxy: true, // Tells http-proxy to respect the target path structure
+  prependPath: false // Prevents double-slashing paths
 });
+});
+
 // Create HTTP server and handle incoming requests
 server.listen(PORT, HOST, () => {
   console.clear();
