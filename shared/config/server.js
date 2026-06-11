@@ -36,7 +36,7 @@ export const SERVER_REGISTRY = [
   {
     name: 'Registration Service',
     prefix: '/reg',
-    target: process.env.REGISTRATION_SERVICE_URL || `http://localhost:${process.env.SERVER2_PORT || 3002}`,
+    target: process.env.REG_SERVICE_URL || `http://localhost:${process.env.SERVER2_PORT || 3002}`,
     routes: [
       'GET    /api/programs',
       'POST   /api/programs',
