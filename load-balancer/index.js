@@ -32,55 +32,49 @@ proxy.on('error', (err, req, res) => {
     }));
   }
 });
-
 // Main Server Logic
 const server = http.createServer((req, res) => {
-  logger(req, res, () => {
-    if (req.url === '/health') {
+  // 1. Handle Health Check first
+  if (req.url === '/health') {
+    return logger(req, res, () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         status: 'healthy',
         timestamp: new Date().toISOString(),
         services: SERVER_REGISTRY?.length || 0,
-        environment: process.env.NODE_ENV || 'development'
+        environment: process.env.NODE_ENV || 'production',
       }));
-    }
+    });
+  }
 
-    // Preserve the original URL
-const originalUrl = req.url;
+  // 2. Find the target service IMMEDIATELY before reading streams
+  const originalUrl = req.url;
+  const targetService = getTargetService(originalUrl);
 
-// Find the target service
-const targetService = getTargetService(originalUrl);
+  if (!targetService) {
+    return logger(req, res, () => {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Not Found',
+        message: `No service registered for ${originalUrl}`,
+      }));
+    });
+  }
 
-if (!targetService) {
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  return res.end(
-    JSON.stringify({
-      success: false,
-      error: 'Not Found',
-      message: `No service registered for ${originalUrl}`,
-    })
-  );
-}
+  // 3. Rewrite path and forward immediately (Preserves the POST body stream)
+  const rewrittenPath = originalUrl.slice(targetService.prefix.length) || '/';
+  req.url = rewrittenPath;
 
-// Remove only the service prefix
-const rewrittenPath =
-  originalUrl.slice(targetService.prefix.length) || '/';
+  console.log(`[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`);
 
-// Forward using the rewritten path
-req.url = rewrittenPath;
-
-console.log(
-  `[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`
-);
-
-proxy.web(req, res, {
-  target: targetService.target,
-  changeOrigin: true,
-});
+  // Forward right away!
+  proxy.web(req, res, {
+    target: targetService.target,
+    changeOrigin: true
   });
 });
-
+// Create HTTP server and handle incoming requests
 server.listen(PORT, HOST, () => {
   console.clear();
   console.log(`\n🚀 INNOSPACE LOAD BALANCER`);
