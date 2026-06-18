@@ -66,13 +66,12 @@ const rewrittenPath = originalUrl.slice(targetService.prefix.length) || '/';
 console.log(
   `[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`
 );
-
+// update the incoming request URL property so http-poxy sends to the stripped version
+req.url = rewrittenPath;
 // Forward using the rewritten path variable explicitly
 proxy.web(req, res, {
   target: targetService.target,
-  changeOrigin: true,
-  toProxy: true, // Tells http-proxy to respect the target path structure
-  prependPath: false // Prevents double-slashing paths
+  changeOrigin: true
 });
 });
 
