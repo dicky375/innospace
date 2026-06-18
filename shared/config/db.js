@@ -49,7 +49,7 @@ export function createConnection(config, label) {
       logging: false,
       dialectOptions: sslOptions,
       pool: {
-        max: 2,
+        max: 1,
         min: 0,
         acquire: 30000,
         idle: 10000,
