@@ -1,5 +1,4 @@
-import dotenv from 'dotenv';
-dotenv.config();
+
 
 /**
  * INNOSPACE SERVER REGISTRY
@@ -60,7 +59,7 @@ export const SERVER_REGISTRY = [
     name: 'Payment Service',
     prefix: '/pay',
     target:
-  process.env.PAYMENT_SERVICE_URL ||
+  process.env.PAY_SERVICE_URL ||
   `http://localhost:${process.env.SERVER3_PORT || 3003}`,
     routes: [
       'POST /api/payments/initialize',
