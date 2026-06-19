@@ -77,6 +77,7 @@ const server = http.createServer((req, res) => {
     // Send the uncorrupted native stream to the internal network target
     proxy.web(req, res, {
       target: targetService.target,
+      buffer: httpProxy.buffer(req), // Buffer the request to preserve the original stream for retries
       headers: {
         host: cleanHost, // Explicitly overrides header matching rules for Render
       }
