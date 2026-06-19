@@ -10,10 +10,10 @@ const HOST = '0.0.0.0';
 
 // Initialize the native proxy engine
 const proxy = httpProxy.createProxyServer({
-  proxyTimeout: 15000,
-  timeout: 15000,
+  proxyTimeout: 30000, // Elevated timeouts for Render free-tier wakeups
+  timeout: 30000,
   ws: true,
-  changeOrigin: true, // Rewrites public headers to match private target names
+  changeOrigin: true, 
   autoRewrite: true,
 });
 
@@ -35,7 +35,7 @@ proxy.on('error', (err, req, res) => {
 
 // Main Server Logic
 const server = http.createServer((req, res) => {
-  // 1. Handle Health Check
+  // 1. Handle Health Check first (Safely logged)
   if (req.url === '/health') {
     return logger(req, res, () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -48,40 +48,42 @@ const server = http.createServer((req, res) => {
     });
   }
 
-  // 2. Wrap routing logic with the logger middleware
-  logger(req, res, () => {
-    const originalUrl = req.url;
-    const targetService = getTargetService(originalUrl);
+  // 2. Immediate Route Processing (Ensures data stream is uncorrupted)
+  const originalUrl = req.url;
+  const targetService = getTargetService(originalUrl);
 
-    // Guard: Path doesn't match any registered microservice prefix
-    if (!targetService) {
+  // Guard: Path doesn't match any registered microservice prefix
+  if (!targetService) {
+    return logger(req, res, () => {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({
+      res.end(JSON.stringify({
         success: false,
         error: 'Not Found',
         message: `No service registered for ${originalUrl}`,
       }));
-    }
-
-    // Slice prefix out cleanly (e.g. /auth/api/auth/login -> /api/auth/login)
-    const rewrittenPath = originalUrl.slice(targetService.prefix.length) || '/';
-
-    console.log(`[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`);
-
-    // Mutate the request object's URL field so the proxy knows the target's downstream path
-    req.url = rewrittenPath;
-
-    // Extract raw internal domain target host cleanly (e.g. "innospace-auth:10000")
-    const cleanHost = targetService.target.replace(/^https?:\/\//, '');
-
-    // Send the uncorrupted native stream to the internal network target
-    proxy.web(req, res, {
-      target: targetService.target,
-      buffer: httpProxy.buffer(req), // Buffer the request to preserve the original stream for retries
-      headers: {
-        host: cleanHost, // Explicitly overrides header matching rules for Render
-      }
     });
+  }
+
+  // Slice prefix out cleanly (e.g. /auth/api/auth/login -> /api/auth/login)
+  const rewrittenPath = originalUrl.slice(targetService.prefix.length) || '/';
+
+  console.log(`[LB] ${req.method} ${originalUrl} -> ${targetService.target}${rewrittenPath}`);
+
+  // Mutate the request URL property for the proxy core destination target
+  req.url = rewrittenPath;
+
+  // Extract raw internal domain target host cleanly (e.g. "innospace-auth:10000")
+  const cleanHost = targetService.target.replace(/^https?:\/\//, '');
+
+  // Log non-destructively AFTER parsing target parameters, right as we send
+  logger(req, res, () => {});
+
+  // Pipe the pristine native stream immediately
+  proxy.web(req, res, {
+    target: targetService.target,
+    headers: {
+      host: cleanHost, // Explicitly overrides security matching rules for Render
+    }
   });
 });
 
