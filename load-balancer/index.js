@@ -30,6 +30,27 @@ proxy.on('error', (err, req, res) => {
     }));
   }
 });
+// Restream the body safely to prevent data stream truncation over internal containers
+proxy.on('proxyReq', (proxyReq, req, res, options) => {
+  if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT') {
+    // Collect the incoming body stream if it hasn't been written to the socket yet
+    let bodyData = '';
+    
+    req.on('data', (chunk) => {
+      bodyData += chunk;
+    });
+
+    req.on('end', () => {
+      if (bodyData) {
+        // Enforce the headers match the payload length exactly
+        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+        // Write the body cleanly straight into the proxied request socket stream
+        proxyReq.write(bodyData);
+        proxyReq.end();
+      }
+    });
+  }
+});
 // Main Server Logic
 const server = http.createServer((req, res) => {
   // 1. Handle Health Check first
