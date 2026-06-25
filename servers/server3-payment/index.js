@@ -113,9 +113,9 @@ async function processSuccessfulPayment(reference, metadata, amount) {
     await txn.update({ commissionCredited: true, paystackStatus: 'success', commission });
 
     // Use LB URL in production, localhost in dev
-    const lbUrl = process.env.LB_SERVICE_URL || `http://localhost:${process.env.LOAD_BALANCER_PORT || 3000}`;
-    await axios.patch(
-      `${lbUrl}/reg/api/registrations/${metadata.registrationId}/mark-paid`,
+     const lbUrl = process.env.LB_SERVICE_URL || `http://localhost:${process.env.LOAD_BALANCER_PORT || 3000}`;
+      await axios.patch(
+  `${lbUrl}/reg/api/registrations/${metadata.registrationId}/mark-paid`,
       { paystackRef: reference, commission },
       { headers: { 'x-service-secret': process.env.INTERNAL_SERVICE_SECRET } }
     );
