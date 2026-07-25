@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -175,6 +176,36 @@ router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   }
 });
 
+
+   // ===== GET ALL REGISTRATIONS (Admin) =====
+router.get('/all', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const registrations = await Registration.findAll({
+      order: [['createdAt', 'DESC']],
+      raw: true
+    });
+
+    // Disable caching
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
+    res.json({
+      success: true,
+      count: registrations.length,
+      registrations
+    });
+  } catch (err) {
+    console.error('[REG] All registrations error:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch registrations'
+    });
+  }
+});
+
 // ===== GET PENDING REGISTRATIONS (Admin) =====
 router.get('/pending', authenticate, requireAdmin, async (req, res) => {
   try {
@@ -182,6 +213,13 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
       where: { status: 'pending_approval' },
       order: [['createdAt', 'ASC']],
       raw: true
+    });
+
+    // Disable caching
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     });
 
     res.json({
@@ -199,27 +237,7 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
 });
 
 
-// ===== GET ALL REGISTRATIONS (Admin) =====
-router.get('/all', authenticate, requireAdmin, async (req, res) => {
-  try {
-    const registrations = await Registration.findAll({
-      order: [['createdAt', 'DESC']],
-      raw: true  // This will give us plain objects without associations
-    });
 
-    res.json({
-      success: true,
-      count: registrations.length,
-      registrations
-    });
-  } catch (err) {
-    console.error('[REG] All registrations error:', err);
-    res.status(500).json({
-      success: false,
-      error: err.message || 'Failed to fetch registrations'
-    });
-  }
-});
 
 // ===== GET REGISTRATION BY ID =====
 router.get('/:id', authenticate, async (req, res) => {

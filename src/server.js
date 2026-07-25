@@ -23,6 +23,9 @@ import registrationRoutes from './routes/registrations.routes.js';
 import paymentsRoutes from './routes/payments.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import payoutRoutes from './routes/payouts.routes.js';
+import usersRoutes from './routes/users.routes.js';
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -91,8 +94,8 @@ app.use('/api/programs', programsRoutes);
 app.use('/api/registrations', registrationRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/stats', statsRoutes);
-app.use('/api/payouts', paymentsRoutes);
-
+app.use('/api/payouts', payoutRoutes);
+app.use('/api/users', usersRoutes);
 // ===== TEST ROUTE =====
 app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!' });
