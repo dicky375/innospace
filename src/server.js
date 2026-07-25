@@ -21,7 +21,8 @@ import authRoutes from './routes/auth.routes.js';
 import programsRoutes from './routes/program.routes.js';
 import registrationRoutes from './routes/registrations.routes.js';
 import paymentsRoutes from './routes/payments.routes.js';
-
+import statsRoutes from './routes/stats.routes.js';
+import payoutRoutes from './routes/payouts.routes.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -89,6 +90,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/programs', programsRoutes);
 app.use('/api/registrations', registrationRoutes);
 app.use('/api/payments', paymentsRoutes);
+app.use('/api/stats', statsRoutes);
+app.use('/api/payouts', paymentsRoutes);
 
 // ===== TEST ROUTE =====
 app.get('/api/test', (req, res) => {
