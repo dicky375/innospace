@@ -56,7 +56,6 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
       supervisorName
     } = req.body;
 
-    // Validate required fields
     if (!programId || !studentName || !studentPhone || !course || !department || !regNumber) {
       return res.status(400).json({
         success: false,
@@ -64,7 +63,6 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
       });
     }
 
-    // Check if program exists and is active
     const program = await Program.findByPk(programId);
     if (!program || !program.isActive) {
       return res.status(404).json({
@@ -73,7 +71,6 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
       });
     }
 
-    // Check for duplicate registration
     const duplicate = await Registration.findOne({
       where: {
         regNumber,
@@ -89,7 +86,6 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
       });
     }
 
-    // Create registration
     const registration = await Registration.create({
       programId,
       affiliateId: req.user.id,
@@ -122,11 +118,20 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
     });
   }
 });
+
+
 // ===== GET AFFILIATE'S REGISTRATIONS =====
 router.get('/my', authenticate, requireAffiliate, async (req, res) => {
   try {
     const registrations = await Registration.findAll({
       where: { affiliateId: req.user.id },
+      include: [
+        { 
+          model: Program, 
+          as: 'program',  // Use the alias defined in associations
+          attributes: ['id', 'title', 'type', 'price']
+        }
+      ],
       order: [['createdAt', 'DESC']]
     });
 
@@ -143,7 +148,6 @@ router.get('/my', authenticate, requireAffiliate, async (req, res) => {
     });
   }
 });
-
 // ===== GET AFFILIATE STATS =====
 router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   try {
@@ -176,11 +180,19 @@ router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   }
 });
 
-
-   // ===== GET ALL REGISTRATIONS (Admin) =====
+// ===== GET ALL REGISTRATIONS (Admin) - WITH STATUS FILTER =====
 router.get('/all', authenticate, requireAdmin, async (req, res) => {
   try {
+    const { status } = req.query;
+    
+    // ✅ Build where clause with status filter
+    const where = {};
+    if (status) {
+      where.status = status;
+    }
+
     const registrations = await Registration.findAll({
+      where,
       order: [['createdAt', 'DESC']],
       raw: true
     });
@@ -215,7 +227,6 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
       raw: true
     });
 
-    // Disable caching
     res.set({
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
@@ -236,15 +247,11 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-
-
-
 // ===== GET REGISTRATION BY ID =====
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Find the registration
     const registration = await Registration.findByPk(id);
 
     if (!registration) {
@@ -254,7 +261,6 @@ router.get('/:id', authenticate, async (req, res) => {
       });
     }
 
-    // Check permissions (affiliate can only see their own registrations)
     if (req.user.role === 'affiliate' && registration.affiliateId !== req.user.id) {
       return res.status(403).json({
         success: false,
@@ -294,7 +300,6 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Calculate commission (10% of program price for internships, 0 for SIWES)
     const commission = registration.Program?.type === 'siwes'
       ? 0
       : parseFloat(registration.amount) * 0.10;
@@ -386,7 +391,6 @@ router.patch('/:id/cancel', authenticate, requireAffiliate, async (req, res) => 
       });
     }
 
-    // Delete uploaded file if exists
     if (registration.siwesFormPath && fs.existsSync(registration.siwesFormPath)) {
       fs.unlinkSync(registration.siwesFormPath);
     }

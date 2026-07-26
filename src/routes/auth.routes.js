@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { Op } from 'sequelize';
 import { User, RefreshToken } from '../config/db.js';
 import { authenticate } from '../middleware/auth.js';
+import { noCache, shortCache, mediumCache, longCache } from '../middleware/cache.js';
 
 const router = Router();
 

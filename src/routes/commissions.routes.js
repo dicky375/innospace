@@ -6,6 +6,8 @@ import {
   getCommissionRate 
 } from '../services/commission.service.js';
 
+import { noCache, shortCache, mediumCache, longCache } from '../middleware/cache.js';
+
 const router = Router();
 
 // ===== GET AFFILIATE BALANCE =====
