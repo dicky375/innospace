@@ -180,12 +180,11 @@ router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   }
 });
 
-// ===== GET ALL REGISTRATIONS (Admin) - WITH STATUS FILTER =====
+// ===== GET ALL REGISTRATIONS (Admin) =====
 router.get('/all', authenticate, requireAdmin, async (req, res) => {
   try {
     const { status } = req.query;
     
-    // ✅ Build where clause with status filter
     const where = {};
     if (status) {
       where.status = status;
@@ -193,11 +192,16 @@ router.get('/all', authenticate, requireAdmin, async (req, res) => {
 
     const registrations = await Registration.findAll({
       where,
-      order: [['createdAt', 'DESC']],
-      raw: true
+      include: [
+        { 
+          model: Program, 
+          as: 'program',
+          attributes: ['id', 'title', 'type', 'price']
+        }
+      ],
+      order: [['createdAt', 'DESC']]
     });
 
-    // Disable caching
     res.set({
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
@@ -217,6 +221,7 @@ router.get('/all', authenticate, requireAdmin, async (req, res) => {
     });
   }
 });
+
 
 // ===== GET PENDING REGISTRATIONS (Admin) =====
 router.get('/pending', authenticate, requireAdmin, async (req, res) => {

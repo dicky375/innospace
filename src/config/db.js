@@ -72,7 +72,7 @@ Registration.belongsTo(User, {
 // Program ↔ Registration
 Program.hasMany(Registration, { 
   foreignKey: 'program_id', 
-  as: 'registrations' 
+  as: 'program' 
 });
 Registration.belongsTo(Program, { 
   foreignKey: 'program_id', 
