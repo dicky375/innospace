@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Program } from '../config/db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-
+import {Program, sequelize } from '../config/db.js';
 const router = Router();
 
 // ===== GET ALL PROGRAMS (Public) =====
