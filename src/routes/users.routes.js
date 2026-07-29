@@ -79,14 +79,16 @@ router.patch('/profile', authenticate, async (req, res) => {
     if (bankName !== undefined) updateData.bankName = bankName;
     if (accountNumber !== undefined) updateData.accountNumber = accountNumber;
     if (accountName !== undefined) updateData.accountName = accountName;
-
+    
+    console.log('[BACKEND] Updating with:', updateData);
     await user.update(updateData);
 
     // Fetch updated user
     const updatedUser = await User.findByPk(req.user.id, {
       attributes: { exclude: ['password'] }
     });
-
+    
+      console.log('[BACKEND] Updated user:', updatedUser);
     return res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
