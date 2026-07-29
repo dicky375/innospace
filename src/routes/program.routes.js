@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { Program } from '../config/db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import {Program, sequelize } from '../config/db.js';
+import { Program, sequelize } from '../config/db.js';
+import { Op } from 'sequelize';
+
 const router = Router();
 
 // ===== GET ALL PROGRAMS (Public) =====
@@ -278,7 +279,7 @@ router.get('/stats/summary', authenticate, requireAdmin, async (req, res) => {
     console.error('[PROGRAMS] Stats error:', err);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to fetch program stats' 
+      error: err.message || 'Failed to fetch program stats' 
     });
   }
 });
