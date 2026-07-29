@@ -250,36 +250,26 @@ router.patch('/:id/restore', authenticate, requireAdmin, async (req, res) => {
     });
   }
 });
-
-// ===== GET PROGRAM STATS (Admin only) =====
+// ===== GET PROGRAM STATS (Admin only) - SIMPLIFIED =====
 router.get('/stats/summary', authenticate, requireAdmin, async (req, res) => {
   try {
     const totalPrograms = await Program.count();
     const activePrograms = await Program.count({ where: { isActive: true } });
     const inactivePrograms = await Program.count({ where: { isActive: false } });
-    
-    const byType = await Program.findAll({
-      attributes: [
-        'type',
-        [sequelize.fn('COUNT', sequelize.col('type')), 'count']
-      ],
-      group: ['type']
-    });
 
     res.json({
       success: true,
       stats: {
         total: totalPrograms,
         active: activePrograms,
-        inactive: inactivePrograms,
-        byType
+        inactive: inactivePrograms
       }
     });
   } catch (err) {
     console.error('[PROGRAMS] Stats error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: err.message || 'Failed to fetch program stats' 
+      error: err.message || 'Failed to fetch program stats'
     });
   }
 });
