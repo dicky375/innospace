@@ -60,8 +60,11 @@ router.get('/profile', authenticate, async (req, res) => {
 // ============================================================
 // PATCH /api/users/profile - Update current user's profile
 // ============================================================
+// ===== UPDATE USER PROFILE =====
 router.patch('/profile', authenticate, async (req, res) => {
   try {
+    console.log('[BACKEND] Update request body:', req.body);
+    
     const { name, phone, bankName, accountNumber, accountName } = req.body;
     const user = await User.findByPk(req.user.id);
 
@@ -72,37 +75,39 @@ router.patch('/profile', authenticate, async (req, res) => {
       });
     }
 
-    // Build update object with only provided fields
+    // Build update object - only include fields that are provided
     const updateData = {};
-    if (name !== undefined) updateData.name = name;
-    if (phone !== undefined) updateData.phone = phone;
-    if (bankName !== undefined) updateData.bankName = bankName;
-    if (accountNumber !== undefined) updateData.accountNumber = accountNumber;
-    if (accountName !== undefined) updateData.accountName = accountName;
-    
-    console.log('[BACKEND] Updating with:', updateData);
-    await user.update(updateData);
+    if (name !== undefined && name !== '') updateData.name = name;
+    if (phone !== undefined && phone !== '') updateData.phone = phone;
+    if (bankName !== undefined && bankName !== '') updateData.bankName = bankName;
+    if (accountNumber !== undefined && accountNumber !== '') updateData.accountNumber = accountNumber;
+    if (accountName !== undefined && accountName !== '') updateData.accountName = accountName;
 
-    // Fetch updated user
+    console.log('[BACKEND] Updating with:', updateData);
+
+    // Only update if there are changes
+    if (Object.keys(updateData).length > 0) {
+      await user.update(updateData);
+    }
+
+    // Fetch the updated user
     const updatedUser = await User.findByPk(req.user.id, {
       attributes: { exclude: ['password'] }
     });
-    
-      console.log('[BACKEND] Updated user:', updatedUser);
-    return res.status(200).json({
+
+    res.json({
       success: true,
       message: 'Profile updated successfully',
       user: updatedUser
     });
-  } catch (error) {
-    console.error('[USERS] Update profile error:', error);
-    return res.status(500).json({
+  } catch (err) {
+    console.error('[BACKEND] Update profile error:', err);
+    res.status(500).json({
       success: false,
-      error: 'Failed to update profile'
+      error: err.message || 'Failed to update profile'
     });
   }
 });
-
 // ============================================================
 // GET /api/users/:id - Get user by ID
 // ============================================================
