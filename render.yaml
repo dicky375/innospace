@@ -1,26 +1,20 @@
 services:
-  # ============================================================
-  # WEB SERVICE - Main API Server
-  # ============================================================
   - type: web
     name: innospace-api
     runtime: node
     plan: starter
     buildCommand: npm install
     startCommand: node src/server.js
-
-    # ✅ This runs automatically after deployment
+    
+    # ✅ Add post-deploy commands
     postDeployCommands:
       - node scripts/seed-admin.js
 
     envVars:
-      # ----- Server Config -----
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
-
-      # ----- Databases -----
       - key: DATABASE_URL
         fromDatabase:
           name: innospace-db
@@ -30,44 +24,30 @@ services:
           name: innospace-redis
           type: redis
           property: connectionString
-
-      # ----- JWT Secrets (auto-generated) -----
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
-      - key: INTERNAL_SERVICE_SECRET
-        generateValue: true
-
-      # ----- Paystack (set in dashboard) -----
       - key: PAYSTACK_SECRET_KEY
         sync: false
       - key: PAYSTACK_WEBHOOK_SECRET
         sync: false
       - key: PAYSTACK_PUBLIC_KEY
         sync: false
-
-      # ----- CORS -----
       - key: CORS_ORIGIN
         value: https://innospace-connect.vercel.app
-
-      # ----- Admin Seeding -----
+      - key: INTERNAL_SERVICE_SECRET
+        generateValue: true
       - key: ADMIN_EMAIL
         value: admin@innospace.com
       - key: ADMIN_PASSWORD
         value: Admin123!
 
-  # ============================================================
-  # POSTGRESQL DATABASE
-  # ============================================================
   - type: postgres
     name: innospace-db
     plan: free
     databaseName: innospace
 
-  # ============================================================
-  # REDIS CACHE
-  # ============================================================
   - type: redis
     name: innospace-redis
     plan: free

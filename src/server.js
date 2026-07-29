@@ -26,6 +26,7 @@ import payoutRoutes from './routes/payouts.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import configRoutes from './routes/config.routes.js';
 import commissionsRoutes from './routes/commissions.routes.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -41,17 +42,18 @@ if (!fs.existsSync(uploadDir)) {
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:8080',
-  'http://localhost:3000'
-]
-
+  'http://localhost:3000',
+  'https://innospace-connect.vercel.app',
+  'https://innospace.onrender.com'
+];
 
 app.use(cors({
- origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+  origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
+      console.warn('CORS blocked:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -98,6 +100,7 @@ app.use('/api/payouts', payoutRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/commissions', commissionsRoutes);
+
 // ===== TEST ROUTE =====
 app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!' });
@@ -109,9 +112,16 @@ app.use(errorHandler);
 // ===== START SERVER =====
 async function startServer() {
   try {
+    // Connect to database
     await sequelize.authenticate();
     console.log('✅ Database connected');
 
+    // ✅ SYNC DATABASE - Create tables if they don't exist
+    console.log('🔄 Syncing database schema...');
+    await sequelize.sync({ alter: true });
+    console.log('✅ Database schema synced');
+
+    // Connect to Redis
     try {
       await getRedisClient();
       console.log('✅ Redis connected');
@@ -119,6 +129,7 @@ async function startServer() {
       console.warn('⚠️ Redis not available');
     }
 
+    // Start server
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 INNOSPACE MONOLITH`);
       console.log(`=================================`);
