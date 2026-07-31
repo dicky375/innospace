@@ -6,7 +6,7 @@ import fs from 'fs';
 import { Op } from 'sequelize';
 import { authenticate, requireAffiliate, requireAdmin } from '../middleware/auth.js';
 import { Registration, Program, User } from '../config/db.js';
-
+import { getRedisClient, KEYS } from '../config/redis.js';
 const router = Router();
 
 // ===== CONFIGURE MULTER FOR FILE UPLOADS =====
@@ -289,7 +289,9 @@ router.get('/:id', authenticate, async (req, res) => {
 // ===== APPROVE REGISTRATION (Admin) =====
 router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
   try {
-    const registration = await Registration.findByPk(req.params.id);
+    const registration = await Registration.findByPk(req.params.id, {
+      include: [{ model: Program, as: 'program' }]
+    });
     
     if (!registration) {
       return res.status(404).json({
@@ -298,23 +300,54 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    if (registration.status !== 'pending_approval') {
+    // Allow approval of pending_approval OR paid registrations
+    if (registration.status !== 'pending_approval' && registration.status !== 'paid') {
       return res.status(400).json({
         success: false,
         error: `Cannot approve - status is ${registration.status}`
       });
     }
 
-    const commission = registration.Program?.type === 'siwes'
+    // Calculate commission
+    const commission = registration.program?.type === 'siwes'
       ? 0
       : parseFloat(registration.amount) * 0.10;
 
-    await registration.update({
-      status: 'approved',
+    // Update status only if it's pending
+    const updateData = {
       approvedBy: req.user.id,
       approvedAt: new Date(),
       commissionEarned: commission
-    });
+    };
+    
+    if (registration.status === 'pending_approval') {
+      updateData.status = 'approved';
+    }
+    
+    await registration.update(updateData);
+
+    // ✅ CREDIT COMMISSION TO REDIS (affiliate balance)
+    if (commission > 0 && registration.affiliateId) {
+      try {
+        const redis = await getRedisClient();
+        if (redis) {
+          await redis.incrbyfloat(
+            KEYS.affiliateBalance(registration.affiliateId),
+            commission
+          );
+          await redis.zincrby(
+            KEYS.leaderboard(),
+            commission,
+            registration.affiliateId
+          );
+          console.log(`[REG] ✅ Commission credited to Redis: ₦${commission} for affiliate ${registration.affiliateId}`);
+        } else {
+          console.warn('[REG] ⚠️ Redis not available, commission not credited');
+        }
+      } catch (redisErr) {
+        console.error('[REG] ❌ Redis credit failed:', redisErr.message);
+      }
+    }
 
     res.json({
       success: true,
@@ -326,7 +359,7 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
     console.error('[REG] Approve error:', err);
     res.status(500).json({
       success: false,
-      error: 'Failed to approve registration'
+      error: err.message || 'Failed to approve registration'
     });
   }
 });
