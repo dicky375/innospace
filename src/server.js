@@ -26,7 +26,7 @@ import payoutRoutes from './routes/payouts.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import configRoutes from './routes/config.routes.js';
 import commissionsRoutes from './routes/commissions.routes.js';
-
+import adminRoutes from './routes/admin.routes.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -100,6 +100,7 @@ app.use('/api/payouts', payoutRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/commissions', commissionsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // ===== TEST ROUTE =====
 app.get('/api/test', (req, res) => {
