@@ -448,4 +448,63 @@ router.patch('/:id/cancel', authenticate, requireAffiliate, async (req, res) => 
   }
 });
 
+// ===== TEMPORARY: Credit all commissions to Redis =====
+router.post('/credit-all', authenticate, requireAdmin, async (req, res) => {
+  try {
+    console.log('[REG] 🔄 Starting commission credit...');
+    const redis = await getRedisClient();
+    if (!redis) {
+      console.error('[REG] ❌ Redis not available');
+      return res.status(500).json({ error: 'Redis not available' });
+    }
+
+    const registrations = await Registration.findAll({
+      where: {
+        status: 'approved',
+        commissionEarned: { [Op.gt]: 0 }
+      }
+    });
+
+    console.log(`[REG] 📊 Found ${registrations.length} registrations with commissions`);
+
+    let total = 0;
+    const results = [];
+
+    for (const reg of registrations) {
+      const commission = parseFloat(reg.commissionEarned);
+      if (commission > 0 && reg.affiliateId) {
+        await redis.incrbyfloat(
+          KEYS.affiliateBalance(reg.affiliateId),
+          commission
+        );
+        await redis.zincrby(
+          KEYS.leaderboard(),
+          commission,
+          reg.affiliateId
+        );
+        total += commission;
+        results.push({
+          registrationId: reg.id,
+          affiliateId: reg.affiliateId,
+          studentName: reg.studentName,
+          commission: commission
+        });
+        console.log(`[REG] ✅ Credited ₦${commission} to ${reg.affiliateId}`);
+      }
+    }
+
+    console.log(`[REG] ✅ Total credited: ₦${total.toFixed(2)}`);
+
+    res.json({
+      success: true,
+      message: `Credited ₦${total.toFixed(2)} total commission to ${results.length} registrations`,
+      total: total.toFixed(2),
+      count: results.length,
+      results
+    });
+  } catch (err) {
+    console.error('[REG] ❌ Credit all error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 export default router;
