@@ -508,4 +508,95 @@ router.post('/credit-all', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// ===== MARK REGISTRATION AS PAID (Internal - called by payment service) =====
+router.patch('/:id/mark-paid', async (req, res) => {
+  try {
+    // Verify service secret for security
+    const serviceSecret = req.headers['x-service-secret'];
+    if (!serviceSecret || serviceSecret !== process.env.INTERNAL_SERVICE_SECRET) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+
+    const { id } = req.params;
+    const { paystackRef, commission } = req.body;
+
+    const registration = await Registration.findByPk(id);
+    if (!registration) {
+      return res.status(404).json({
+        success: false,
+        error: 'Registration not found'
+      });
+    }
+
+    // Only allow marking as paid if status is 'approved' or 'pending_approval'
+    if (registration.status !== 'approved' && registration.status !== 'pending_approval') {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot mark as paid - status is ${registration.status}`
+      });
+    }
+
+    await registration.update({
+      status: 'paid',
+      paystackRef: paystackRef || null,
+      commissionEarned: commission || registration.commissionEarned
+    });
+
+    res.json({
+      success: true,
+      message: 'Registration marked as paid',
+      registration
+    });
+  } catch (err) {
+    console.error('[REG] Mark paid error:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to mark registration as paid'
+    });
+  }
+});
+
+// ===== MANUALLY MARK REGISTRATION AS PAID (Admin only - for testing) =====
+router.patch('/:id/mark-paid-admin', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paystackRef } = req.body;
+
+    const registration = await Registration.findByPk(id);
+    if (!registration) {
+      return res.status(404).json({
+        success: false,
+        error: 'Registration not found'
+      });
+    }
+
+    if (registration.status === 'paid') {
+      return res.status(400).json({
+        success: false,
+        error: 'Registration is already paid'
+      });
+    }
+
+    await registration.update({
+      status: 'paid',
+      paystackRef: paystackRef || `manual_${Date.now()}`
+    });
+
+    res.json({
+      success: true,
+      message: 'Registration marked as paid (manual)',
+      registration
+    });
+  } catch (err) {
+    console.error('[REG] Manual mark paid error:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to mark registration as paid'
+    });
+  }
+});
+
 export default router;
