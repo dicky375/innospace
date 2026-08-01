@@ -58,4 +58,26 @@ router.post('/credit-commissions', authenticate, requireAdmin, async (req, res) 
   }
 });
 
+// ===== SET BALANCE =====
+router.post('/set-balance', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { affiliateId, balance } = req.body;
+    const redis = await getRedisClient();
+    
+    if (!redis) {
+      return res.status(500).json({ error: 'Redis not available' });
+    }
+
+    await redis.set(KEYS.affiliateBalance(affiliateId), balance.toString());
+    
+    res.json({
+      success: true,
+      message: `Set balance to ₦${balance} for affiliate ${affiliateId}`,
+      affiliateId,
+      balance
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 export default router;
