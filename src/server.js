@@ -107,6 +107,54 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!' });
 });
 
+// ===== TEMPORARY: Credit Commissions =====
+app.post('/api/credit-commissions', async (req, res) => {
+  try {
+    console.log('[SERVER] 🔄 Starting commission credit...');
+    const { getRedisClient, KEYS } = await import('./config/redis.js');
+    const { Registration } = await import('./config/db.js');
+    const { Op } = await import('sequelize');
+    
+    const redis = await getRedisClient();
+    if (!redis) {
+      console.error('[SERVER] ❌ Redis not available');
+      return res.status(500).json({ error: 'Redis not available' });
+    }
+
+    const registrations = await Registration.findAll({
+      where: {
+        status: 'approved',
+        commissionEarned: { [Op.gt]: 0 }
+      }
+    });
+
+    console.log(`[SERVER] 📊 Found ${registrations.length} registrations`);
+
+    let total = 0;
+    let count = 0;
+    for (const reg of registrations) {
+      const commission = parseFloat(reg.commissionEarned);
+      if (commission > 0 && reg.affiliateId) {
+        await redis.incrbyfloat(KEYS.affiliateBalance(reg.affiliateId), commission);
+        await redis.zincrby(KEYS.leaderboard(), commission, reg.affiliateId);
+        total += commission;
+        count++;
+        console.log(`[SERVER] ✅ Credited ₦${commission}`);
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Credited ₦${total.toFixed(2)} total to ${count} registrations`,
+      total: total.toFixed(2),
+      count
+    });
+  } catch (err) {
+    console.error('[SERVER] ❌ Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== ERROR HANDLER =====
 app.use(errorHandler);
 
