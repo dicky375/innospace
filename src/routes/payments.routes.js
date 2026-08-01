@@ -233,11 +233,5 @@ router.get('/transactions/all', authenticate, requireAdmin, async (req, res) => 
   }
 });
 
-// In the initialize payment endpoint, allow pending_approval status
-if (registration.status !== 'pending_approval' && registration.status !== 'approved') {
-  return res.status(400).json({
-    success: false,
-    error: `Registration must be pending or approved before payment. Current status: ${registration.status}`
-  });
-}
+
 export default router;
