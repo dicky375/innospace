@@ -107,7 +107,7 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'API is working!' });
 });
 
-// ===== TEMPORARY: Credit Commissions =====
+// ===== CREDIT COMMISSIONS =====
 app.post('/api/credit-commissions', async (req, res) => {
   try {
     console.log('[SERVER] 🔄 Starting commission credit...');
@@ -139,9 +139,11 @@ app.post('/api/credit-commissions', async (req, res) => {
         await redis.zincrby(KEYS.leaderboard(), commission, reg.affiliateId);
         total += commission;
         count++;
-        console.log(`[SERVER] ✅ Credited ₦${commission}`);
+        console.log(`[SERVER] ✅ Credited ₦${commission} to ${reg.affiliateId}`);
       }
     }
+
+    console.log(`[SERVER] ✅ Total credited: ₦${total.toFixed(2)}`);
 
     res.json({ 
       success: true, 
