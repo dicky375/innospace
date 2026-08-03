@@ -28,11 +28,7 @@ export default (sequelize) => {
       },
       comment: 'Total program price in Naira'
     },
-    monthlyFee: {
-      type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
-      field: 'monthly_fee'
-    },
+    
     durationMonths: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -56,13 +52,7 @@ export default (sequelize) => {
       defaultValue: true,
       field: 'is_active'
     },
-    affiliateCommission: {
-      type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
-      defaultValue: 35000.00,
-      field: 'affiliate_commission',
-      comment: 'Commission paid to affiliate per successful registration'
-    },
+   
     createdBy: {
       type: DataTypes.UUID,
       allowNull: false,
