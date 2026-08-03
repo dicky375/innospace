@@ -1,5 +1,4 @@
-import pkg from 'sequelize';
-const { DataTypes } = pkg;
+import { DataTypes } from 'sequelize';
 
 export default (sequelize) => {
   const Program = sequelize.define('Program', {
@@ -28,7 +27,6 @@ export default (sequelize) => {
       },
       comment: 'Total program price in Naira'
     },
-    
     durationMonths: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -52,7 +50,6 @@ export default (sequelize) => {
       defaultValue: true,
       field: 'is_active'
     },
-   
     createdBy: {
       type: DataTypes.UUID,
       allowNull: false,

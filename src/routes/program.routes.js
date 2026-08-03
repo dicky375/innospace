@@ -10,7 +10,6 @@ router.get('/', async (req, res) => {
   try {
     const { isActive, type, search } = req.query;
     
-    // Build where clause
     const where = {};
     if (isActive !== undefined) {
       where.isActive = isActive === 'true';
@@ -73,15 +72,13 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
       title, 
       description, 
       price, 
-      monthlyFee, 
       durationMonths, 
       type, 
       category,
-      affiliateCommission,
       currency 
     } = req.body;
 
-    // Validate required fields
+    // Validate required fields - ✅ Removed monthlyFee
     if (!title) {
       return res.status(400).json({ 
         success: false,
@@ -94,12 +91,6 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
         error: 'Valid price is required' 
       });
     }
-    if (!monthlyFee || monthlyFee <= 0) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Valid monthly fee is required' 
-      });
-    }
     if (!durationMonths || durationMonths < 1) {
       return res.status(400).json({ 
         success: false,
@@ -107,16 +98,14 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Create program
+    // Create program - ✅ Removed monthlyFee and affiliateCommission
     const program = await Program.create({
       title,
       description: description || null,
       price,
-      monthlyFee,
       durationMonths,
       type: type || 'internship',
       category: category || null,
-      affiliateCommission: affiliateCommission || 35000,
       currency: currency || 'NGN',
       createdBy: req.user.id,
       isActive: true
@@ -144,11 +133,9 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
       title, 
       description, 
       price, 
-      monthlyFee, 
       durationMonths, 
       type, 
       category,
-      affiliateCommission,
       isActive,
       currency 
     } = req.body;
@@ -162,16 +149,14 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Build update object (only include fields that are provided)
+    // Build update object - ✅ Removed monthlyFee and affiliateCommission
     const updates = {};
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (price !== undefined) updates.price = price;
-    if (monthlyFee !== undefined) updates.monthlyFee = monthlyFee;
     if (durationMonths !== undefined) updates.durationMonths = durationMonths;
     if (type !== undefined) updates.type = type;
     if (category !== undefined) updates.category = category;
-    if (affiliateCommission !== undefined) updates.affiliateCommission = affiliateCommission;
     if (isActive !== undefined) updates.isActive = isActive;
     if (currency !== undefined) updates.currency = currency;
 
@@ -205,7 +190,6 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Soft delete by setting isActive to false
     await program.update({ isActive: false });
 
     res.json({
@@ -250,7 +234,8 @@ router.patch('/:id/restore', authenticate, requireAdmin, async (req, res) => {
     });
   }
 });
-// ===== GET PROGRAM STATS (Admin only) - SIMPLIFIED =====
+
+// ===== GET PROGRAM STATS (Admin only) =====
 router.get('/stats/summary', authenticate, requireAdmin, async (req, res) => {
   try {
     const totalPrograms = await Program.count();
