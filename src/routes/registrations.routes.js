@@ -92,6 +92,7 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
       studentName,
       studentPhone,
       studentEmail: studentEmail || null,
+      schoolName: req.body.schoolName || null,
       course,
       department,
       regNumber,

@@ -48,6 +48,12 @@ export default (sequelize) => {
       field: 'student_email',
       validate: { isEmail: true }
     },
+    schoolName: {
+  type: DataTypes.STRING,
+  allowNull: true,
+  field: 'school_name',
+  comment: 'Name of the student\'s school/institution'
+},
     course: {
       type: DataTypes.STRING,
       allowNull: false
