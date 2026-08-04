@@ -119,7 +119,6 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
   }
 });
 
-
 // ===== GET AFFILIATE'S REGISTRATIONS =====
 router.get('/my', authenticate, requireAffiliate, async (req, res) => {
   try {
@@ -128,8 +127,13 @@ router.get('/my', authenticate, requireAffiliate, async (req, res) => {
       include: [
         { 
           model: Program, 
-          as: 'program',  // Use the alias defined in associations
+          as: 'program',
           attributes: ['id', 'title', 'type', 'price']
+        },
+        { 
+          model: User, 
+          as: 'affiliate',
+          attributes: ['id', 'name', 'email']
         }
       ],
       order: [['createdAt', 'DESC']]
@@ -148,6 +152,7 @@ router.get('/my', authenticate, requireAffiliate, async (req, res) => {
     });
   }
 });
+
 // ===== GET AFFILIATE STATS =====
 router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   try {
@@ -179,7 +184,6 @@ router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
     });
   }
 });
-
 // ===== GET ALL REGISTRATIONS (Admin) =====
 router.get('/all', authenticate, requireAdmin, async (req, res) => {
   try {
@@ -197,6 +201,11 @@ router.get('/all', authenticate, requireAdmin, async (req, res) => {
           model: Program, 
           as: 'program',
           attributes: ['id', 'title', 'type', 'price']
+        },
+        { 
+          model: User, 
+          as: 'affiliate',
+          attributes: ['id', 'name', 'email']
         }
       ],
       order: [['createdAt', 'DESC']]
@@ -222,14 +231,24 @@ router.get('/all', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-
 // ===== GET PENDING REGISTRATIONS (Admin) =====
 router.get('/pending', authenticate, requireAdmin, async (req, res) => {
   try {
     const registrations = await Registration.findAll({
       where: { status: 'pending_approval' },
-      order: [['createdAt', 'ASC']],
-      raw: true
+      include: [
+        { 
+          model: Program, 
+          as: 'program',
+          attributes: ['id', 'title', 'type', 'price']
+        },
+        { 
+          model: User, 
+          as: 'affiliate',
+          attributes: ['id', 'name', 'email']
+        }
+      ],
+      order: [['createdAt', 'ASC']]
     });
 
     res.set({
@@ -251,6 +270,7 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
     });
   }
 });
+
 
 // ===== GET REGISTRATION BY ID =====
 router.get('/:id', authenticate, async (req, res) => {
