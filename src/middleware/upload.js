@@ -35,6 +35,8 @@ try {
       cloudinary: cloudinary,
       params: {
         folder: 'innospace/siwes-forms',
+        // ✅ ADD UPLOAD PRESET HERE
+        upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned',
         allowed_formats: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
         resource_type: 'auto',
         public_id: (req, file) => {
@@ -46,6 +48,7 @@ try {
       },
     });
     console.log('[Upload] ✅ Cloudinary storage configured');
+    console.log(`[Upload] 📋 Using upload preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
   }
 } catch (err) {
   console.error('[Upload] ❌ Cloudinary connection failed:', err.message);
@@ -120,6 +123,9 @@ console.log('[Upload] Upload middleware configured:');
 console.log(`  Storage: ${useCloudinary ? '☁️ Cloudinary' : '💾 Local'}`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
+if (useCloudinary) {
+  console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
+}
 console.log('='.repeat(60));
 
 export default upload;
