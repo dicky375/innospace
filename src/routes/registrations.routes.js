@@ -44,6 +44,9 @@ const upload = multer({
 // ===== CREATE REGISTRATION (Affiliate) =====
 router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), async (req, res) => {
   try {
+        console.log('[REG] 📝 Registration request received');
+    console.log('[REG] 📎 File uploaded:', req.file ? req.file.originalname : 'No file');
+    
     const {
       programId,
       studentName,
