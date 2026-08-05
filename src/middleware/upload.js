@@ -1,7 +1,7 @@
 // middleware/upload.js
 import multer from 'multer';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
-import cloudinary from '../config/cloudinary.js';
+import { v2 as cloudinary } from 'cloudinary';
+import { Readable } from 'stream';
 import path from 'path';
 import fs from 'fs';
 
@@ -20,56 +20,8 @@ if (!hasCloudinaryCredentials) {
   console.warn('[Upload] ⚠️ Missing Cloudinary credentials! Using local storage fallback.');
 }
 
-// ✅ Configure Cloudinary storage
-let storage;
-let useCloudinary = false;
-
-try {
-  if (hasCloudinaryCredentials) {
-    // ✅ Test Cloudinary connection before using it
-    const testResult = await cloudinary.api.ping();
-    console.log('[Upload] ✅ Cloudinary connection test:', testResult.status);
-    useCloudinary = true;
-    
-    storage = new CloudinaryStorage({
-      cloudinary: cloudinary,
-      params: {
-        folder: 'innospace/siwes-forms',
-        // ✅ ADD UPLOAD PRESET HERE
-        upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned',
-        allowed_formats: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
-        resource_type: 'auto',
-        public_id: (req, file) => {
-          const unique = `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-          const name = `${req.user?.id || 'anonymous'}-${unique}-${file.originalname.split('.')[0]}`;
-          console.log(`[Upload] Generating public_id: ${name}`);
-          return name;
-        },
-      },
-    });
-    console.log('[Upload] ✅ Cloudinary storage configured');
-    console.log(`[Upload] 📋 Using upload preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
-  }
-} catch (err) {
-  console.error('[Upload] ❌ Cloudinary connection failed:', err.message);
-  console.warn('[Upload] ⚠️ Falling back to local storage');
-  useCloudinary = false;
-}
-
-// ✅ Fallback to local storage if Cloudinary is not available
-if (!useCloudinary) {
-  console.log('[Upload] Using local storage fallback');
-  storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-      const unique = `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-      const name = `${req.user?.id || 'anonymous'}-${unique}-${file.originalname}`;
-      cb(null, name);
-    }
-  });
-}
+// ✅ Use memory storage (no disk write, direct to Cloudinary)
+const storage = multer.memoryStorage();
 
 // ✅ File filter
 const fileFilter = (req, file, cb) => {
@@ -87,13 +39,99 @@ const fileFilter = (req, file, cb) => {
 };
 
 // ✅ Create multer upload instance
-const upload = multer({
+const multerUpload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: { 
     fileSize: 10 * 1024 * 1024 // 10MB
   }
 });
+
+// ✅ Direct upload to Cloudinary
+const uploadToCloudinary = (buffer, originalname, userId) => {
+  return new Promise((resolve, reject) => {
+    const ext = originalname.match(/\.[^.]+$/)?.[0] || '';
+    const baseName = originalname.replace(/\.[^.]+$/, '');
+    const publicId = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
+    
+    console.log(`[Upload] Uploading to Cloudinary: ${publicId}`);
+    
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'innospace/siwes-forms',
+        public_id: publicId,
+        resource_type: 'auto',
+        upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned',
+        allowed_formats: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
+      },
+      (error, result) => {
+        if (error) {
+          console.error('[Upload] ❌ Cloudinary upload error:', error.message);
+          reject(error);
+        } else {
+          console.log('[Upload] ✅ Cloudinary upload successful:', result.secure_url);
+          resolve(result);
+        }
+      }
+    );
+    
+    // Convert buffer to stream and pipe to Cloudinary
+    const bufferStream = Readable.from(buffer);
+    bufferStream.pipe(uploadStream);
+  });
+};
+
+// ✅ Main upload middleware
+const upload = (fieldName = 'siwesForm') => {
+  return async (req, res, next) => {
+    const multerMiddleware = multerUpload.single(fieldName);
+    
+    multerMiddleware(req, res, async (err) => {
+      if (err) {
+        console.error('[Upload] ❌ Multer error:', err.message);
+        return res.status(400).json({
+          success: false,
+          error: err.message
+        });
+      }
+      
+      if (!req.file) {
+        console.log('[Upload] No file uploaded');
+        return next();
+      }
+      
+      try {
+        // ✅ Upload to Cloudinary
+        const result = await uploadToCloudinary(
+          req.file.buffer,
+          req.file.originalname,
+          req.user?.id || 'anonymous'
+        );
+        
+        // ✅ Attach Cloudinary info to req.file (maintains compatibility)
+        req.file.path = result.secure_url;
+        req.file.filename = result.public_id;
+        req.file.secure_url = result.secure_url;
+        req.file.public_id = result.public_id;
+        req.file.cloudinary_result = result;
+        
+        // ✅ Remove buffer to free memory
+        delete req.file.buffer;
+        
+        console.log('[Upload] ✅ Upload complete:', req.file.path);
+        next();
+        
+      } catch (error) {
+        console.error('[Upload] ❌ Cloudinary error:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to upload file to cloud storage',
+          details: error.message
+        });
+      }
+    });
+  };
+};
 
 // ✅ Error handler middleware
 export const handleUploadError = (err, req, res, next) => {
@@ -120,12 +158,10 @@ export const handleUploadError = (err, req, res, next) => {
 // Log configuration
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ${useCloudinary ? '☁️ Cloudinary' : '💾 Local'}`);
+console.log(`  Storage: ☁️ Cloudinary (direct upload)`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
-if (useCloudinary) {
-  console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
-}
+console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
 console.log('='.repeat(60));
 
 export default upload;
