@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { Router } from 'express';
-import multer from 'multer';
+import upload from '../middleware/upload.js';
 import path from 'path';
 import fs from 'fs';
 import { Op } from 'sequelize';
@@ -46,7 +46,7 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
   try {
         console.log('[REG] 📝 Registration request received');
     console.log('[REG] 📎 File uploaded:', req.file ? req.file.originalname : 'No file');
-    
+
     const {
       programId,
       studentName,
