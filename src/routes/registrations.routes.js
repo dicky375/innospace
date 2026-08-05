@@ -1,46 +1,17 @@
 import crypto from 'crypto';
 import { Router } from 'express';
 import multer from 'multer';
-import upload from '../middleware/upload.js';
 import path from 'path';
 import fs from 'fs';
 import { Op } from 'sequelize';
 import { authenticate, requireAffiliate, requireAdmin } from '../middleware/auth.js';
 import { Registration, Program, User } from '../config/db.js';
 import { getRedisClient, KEYS } from '../config/redis.js';
+import upload from '../middleware/upload.js'; 
+
 const router = Router();
 
-// ===== CONFIGURE MULTER FOR FILE UPLOADS =====
-const uploadDir = path.join(process.cwd(), 'src', 'uploads', 'siws');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const unique = `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-    cb(null, `${req.user.id}-${unique}-${file.originalname}`);
-  }
-});
-
-const fileFilter = (req, file, cb) => {
-  const allowed = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (allowed.includes(ext)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Only PDF, DOC, DOCX, JPG, PNG files are allowed'));
-  }
-};
-
-const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
-});
 
 // ===== CREATE REGISTRATION (Affiliate) =====
 router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), async (req, res) => {
