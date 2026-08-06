@@ -1,24 +1,25 @@
 // src/middleware/upload.js
 import multer from 'multer';
-import axios from 'axios';
-import FormData from 'form-data';
+import { UploadClient } from '@uploadcare/upload-client';
 import path from 'path';
 import fs from 'fs';
 
-// ✅ Cloudinary credentials
-const CLOUD_NAME = 'dd4bxsolt';
-const API_KEY = '631292745235875';
-const API_SECRET = 'ZkQQXurB1IHBQEC-Bm0wHXyF7Xg';
+// ✅ Uploadcare configuration
+const UPLOADCARE_PUBLIC_KEY = process.env.UPLOADCARE_PUBLIC_KEY;
 
-console.log('[Upload] 🔧 Cloudinary configured:');
-console.log('  Cloud Name:', CLOUD_NAME);
-console.log('  API Key:', API_KEY ? '✅ Set' : '❌ Missing');
+console.log('[Upload] 🔧 Uploadcare configured:');
+console.log('  Public Key:', UPLOADCARE_PUBLIC_KEY ? '✅ Set' : '❌ Missing');
 
 // Create local uploads directory as fallback
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+// ✅ Initialize Uploadcare client
+const client = new UploadClient({
+  publicKey: UPLOADCARE_PUBLIC_KEY,
+});
 
 // ✅ Use memory storage
 const storage = multer.memoryStorage();
@@ -47,56 +48,37 @@ const multerUpload = multer({
   }
 });
 
-// ✅ Upload to Cloudinary using axios with upload preset (NO SIGNATURE)
-const uploadToCloudinary = (buffer, originalname, userId) => {
+// ✅ Upload to Uploadcare
+const uploadToUploadcare = (buffer, originalname, userId) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const baseName = originalname.replace(/\.[^.]+$/, '');
-      const publicId = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
-      
-      console.log(`[Upload] 📤 Uploading to Cloudinary:`, {
-        publicId,
+      console.log(`[Upload] 📤 Uploading to Uploadcare:`, {
+        fileName: originalname,
         size: buffer.length,
-        preset: 'innospace-unsigned'
+        userId
       });
-
-      // ✅ Create form data with upload preset (NO SIGNATURE NEEDED)
-      const formData = new FormData();
-      formData.append('file', buffer, {
-        filename: originalname,
-        contentType: originalname.endsWith('.pdf') ? 'application/pdf' : 
-                     originalname.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
-                     originalname.endsWith('.doc') ? 'application/msword' :
-                     'application/octet-stream'
-      });
-      // ✅ Use the upload preset that worked in your direct test
-      formData.append('upload_preset', 'innospace-unsigned');
-      formData.append('public_id', publicId);
-      formData.append('folder', 'innospace/siwes-forms');
-      formData.append('resource_type', 'auto');
-      formData.append('allowed_formats', 'pdf,doc,docx,jpg,jpeg,png');
-
-      const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
       
-      console.log('[Upload] 📡 Sending to Cloudinary...');
-      
-      const response = await axios.post(url, formData, {
-        headers: {
-          ...formData.getHeaders()
-        },
-        timeout: 30000
+      // Upload to Uploadcare
+      const result = await client.uploadFile(buffer, {
+        fileName: originalname,
+        store: 'auto',
+        metadata: {
+          userId: userId || 'anonymous',
+          uploadTime: new Date().toISOString()
+        }
       });
-
-      console.log('[Upload] ✅ Upload successful:', response.data.secure_url);
-      resolve(response.data);
-
+      
+      console.log('[Upload] ✅ Upload successful:');
+      console.log('  UUID:', result.uuid);
+      console.log('  CDN URL:', result.cdnUrl);
+      
+      resolve(result);
+      
     } catch (error) {
-      console.error('[Upload] ❌ Cloudinary error:');
-      console.error('  Message:', error.response?.data?.error?.message || error.message);
-      console.error('  Status:', error.response?.status);
-      console.error('  Data:', error.response?.data);
-      
-      reject(new Error(error.response?.data?.error?.message || error.message));
+      console.error('[Upload] ❌ Uploadcare error:');
+      console.error('  Message:', error.message);
+      console.error('  Response:', error.response?.data);
+      reject(error);
     }
   });
 };
@@ -125,19 +107,19 @@ const upload = (fieldName = 'siwesForm') => {
         console.log('[Upload] File size:', req.file.size, 'bytes');
         console.log('[Upload] MIME type:', req.file.mimetype);
         
-        // ✅ Upload to Cloudinary
-        const result = await uploadToCloudinary(
+        // ✅ Upload to Uploadcare
+        const result = await uploadToUploadcare(
           req.file.buffer,
           req.file.originalname,
           req.user?.id || 'anonymous'
         );
         
-        // ✅ Attach Cloudinary info to req.file
-        req.file.path = result.secure_url;
-        req.file.filename = result.public_id;
-        req.file.secure_url = result.secure_url;
-        req.file.public_id = result.public_id;
-        req.file.cloudinary_result = result;
+        // ✅ Attach Uploadcare info to req.file
+        req.file.path = result.cdnUrl;
+        req.file.secure_url = result.cdnUrl;
+        req.file.filename = result.uuid;
+        req.file.uuid = result.uuid;
+        req.file.uploadcare_result = result;
         
         // ✅ Remove buffer to free memory
         delete req.file.buffer;
@@ -151,7 +133,7 @@ const upload = (fieldName = 'siwesForm') => {
         // ✅ Send detailed error response
         return res.status(500).json({
           success: false,
-          error: 'Failed to upload file to cloud storage',
+          error: 'Failed to upload file',
           details: error.message,
           http_code: 500
         });
@@ -185,10 +167,9 @@ export const handleUploadError = (err, req, res, next) => {
 // Log configuration
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Cloudinary (axios + upload preset)`);
+console.log(`  Storage: ☁️ Uploadcare`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
-console.log(`  Upload Preset: innospace-unsigned`);
 console.log('='.repeat(60));
 
 export default upload;
