@@ -4,7 +4,6 @@ import { v2 as cloudinary } from 'cloudinary';
 import { Readable } from 'stream';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 
 // ✅ FORCE Cloudinary configuration
 cloudinary.config({
@@ -46,50 +45,26 @@ const multerUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ✅ Generate signature for signed upload
-const generateSignature = (publicId, timestamp) => {
-  const params = {
-    public_id: publicId,
-    timestamp: timestamp,
-    folder: 'innospace/siwes-forms'
-  };
-  
-  const sortedParams = Object.keys(params)
-    .sort()
-    .map(key => `${key}=${params[key]}`)
-    .join('&');
-  
-  const signature = crypto
-    .createHash('sha256')
-    .update(sortedParams + cloudinary.config().api_secret)
-    .digest('hex');
-  
-  return signature;
-};
-
-// ✅ Direct upload to Cloudinary with signature
+// ✅ Direct upload with API key (no signature)
 const uploadToCloudinary = (buffer, originalname, userId) => {
   return new Promise((resolve, reject) => {
     const baseName = originalname.replace(/\.[^.]+$/, '');
-    const timestamp = Math.floor(Date.now() / 1000);
-    const publicId = `${userId}-${timestamp}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
-    const signature = generateSignature(publicId, timestamp);
+    const publicId = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
     
-    console.log(`[Upload] 📤 Signed upload to Cloudinary:`, {
+    console.log(`[Upload] 📤 Uploading to Cloudinary:`, {
       publicId,
       size: buffer.length,
-      timestamp,
-      signatureLength: signature.length
+      cloudName: cloudinary.config().cloud_name
     });
     
+    // ✅ Use upload_stream with API key authentication (no signature needed)
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: 'innospace/siwes-forms',
         public_id: publicId,
         resource_type: 'auto',
-        timestamp: timestamp,
-        signature: signature,
-        api_key: cloudinary.config().api_key,
+        // ✅ CRITICAL: Use unsigned=false with API key
+        // This uses the API key for authentication
         allowed_formats: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
       },
       (error, result) => {
@@ -154,7 +129,7 @@ const upload = (fieldName = 'siwesForm') => {
 
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Cloudinary (signed upload)`);
+console.log(`  Storage: ☁️ Cloudinary (API key upload)`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
 console.log('='.repeat(60));
