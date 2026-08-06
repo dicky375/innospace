@@ -5,12 +5,7 @@ import { Readable } from 'stream';
 import path from 'path';
 import fs from 'fs';
 
-// ============================================
-// ✅ FORCE CLOUDINARY CONFIGURATION HERE
-// This bypasses any issues with the config file
-// ============================================
-console.log('[Upload] 🔧 Configuring Cloudinary directly in upload middleware...');
-
+// ✅ FORCE Cloudinary configuration HERE
 cloudinary.config({
   cloud_name: 'dd4bxsolt',
   api_key: '631292745235875',
@@ -18,9 +13,8 @@ cloudinary.config({
   secure: true
 });
 
-// ✅ Verify configuration
-console.log('[Upload] 📋 Cloudinary config verification:');
-console.log('  Cloud Name:', cloudinary.config().cloud_name || '❌ Missing');
+console.log('[Upload] 🔧 Cloudinary configured:');
+console.log('  Cloud Name:', cloudinary.config().cloud_name);
 console.log('  API Key:', cloudinary.config().api_key ? '✅ Set' : '❌ Missing');
 console.log('  API Secret:', cloudinary.config().api_secret ? '✅ Set' : '❌ Missing');
 
@@ -30,18 +24,7 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ✅ Check if Cloudinary is properly configured
-const hasCloudinaryCredentials = !!(cloudinary.config().cloud_name && 
-                                cloudinary.config().api_key && 
-                                cloudinary.config().api_secret);
-
-if (!hasCloudinaryCredentials) {
-  console.warn('[Upload] ⚠️ Cloudinary credentials missing after config! Using local storage fallback.');
-} else {
-  console.log('[Upload] ✅ Cloudinary credentials verified');
-}
-
-// ✅ Use memory storage (no disk write, direct to Cloudinary)
+// ✅ Use memory storage
 const storage = multer.memoryStorage();
 
 // ✅ File filter
@@ -59,67 +42,47 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// ✅ Create multer upload instance
 const multerUpload = multer({
   storage: storage,
   fileFilter: fileFilter,
-  limits: { 
-    fileSize: 10 * 1024 * 1024 // 10MB
-  }
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ✅ Direct upload to Cloudinary with detailed error logging
+// ✅ Direct upload to Cloudinary
 const uploadToCloudinary = (buffer, originalname, userId) => {
   return new Promise((resolve, reject) => {
-    const ext = originalname.match(/\.[^.]+$/)?.[0] || '';
     const baseName = originalname.replace(/\.[^.]+$/, '');
     const publicId = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
     
-    console.log(`[Upload] 📤 Uploading to Cloudinary:`);
-    console.log(`  Public ID: ${publicId}`);
-    console.log(`  File size: ${buffer.length} bytes`);
-    console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
-    
-    // ✅ Log current Cloudinary config before upload
-    console.log(`[Upload] 🔑 Cloudinary config at upload time:`);
-    console.log(`  Cloud Name: ${cloudinary.config().cloud_name}`);
-    console.log(`  API Key: ${cloudinary.config().api_key ? '✅ Set' : '❌ Missing'}`);
-    console.log(`  API Secret: ${cloudinary.config().api_secret ? '✅ Set' : '❌ Missing'}`);
+    console.log(`[Upload] 📤 Uploading to Cloudinary:`, {
+      publicId,
+      size: buffer.length,
+      preset: 'innospace-unsigned'
+    });
     
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: 'innospace/siwes-forms',
         public_id: publicId,
         resource_type: 'auto',
-        upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned',
+        // ✅ This MUST match the preset name that works
+        upload_preset: 'innospace-unsigned',
         allowed_formats: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']
       },
       (error, result) => {
         if (error) {
-          console.error('[Upload] ❌ Cloudinary upload error:');
-          console.error('  Message:', error.message);
-          console.error('  HTTP Code:', error.http_code);
-          console.error('  Full error:', JSON.stringify(error, null, 2));
+          console.error('[Upload] ❌ Cloudinary error:', error.message);
           reject(error);
         } else {
-          console.log('[Upload] ✅ Cloudinary upload successful:');
-          console.log('  URL:', result.secure_url);
-          console.log('  Public ID:', result.public_id);
-          console.log('  Format:', result.format);
+          console.log('[Upload] ✅ Upload successful:', result.secure_url);
           resolve(result);
         }
       }
     );
     
-    // Convert buffer to stream and pipe to Cloudinary
     const bufferStream = Readable.from(buffer);
     bufferStream.pipe(uploadStream);
-    
-    // ✅ Add error handler for the stream
-    bufferStream.on('error', (err) => {
-      console.error('[Upload] ❌ Stream error:', err);
-      reject(err);
-    });
+    bufferStream.on('error', reject);
   });
 };
 
@@ -130,52 +93,31 @@ const upload = (fieldName = 'siwesForm') => {
     
     multerMiddleware(req, res, async (err) => {
       if (err) {
-        console.error('[Upload] ❌ Multer error:', err.message);
-        return res.status(400).json({
-          success: false,
-          error: err.message
-        });
+        return res.status(400).json({ success: false, error: err.message });
       }
       
       if (!req.file) {
-        console.log('[Upload] No file uploaded');
         return next();
       }
       
       try {
-        console.log('[Upload] 📁 Processing file:');
-        console.log(`  Name: ${req.file.originalname}`);
-        console.log(`  Size: ${req.file.size} bytes`);
-        console.log(`  MIME type: ${req.file.mimetype}`);
-        
-        // ✅ Upload to Cloudinary
         const result = await uploadToCloudinary(
           req.file.buffer,
           req.file.originalname,
           req.user?.id || 'anonymous'
         );
         
-        // ✅ Attach Cloudinary info to req.file
         req.file.path = result.secure_url;
         req.file.filename = result.public_id;
         req.file.secure_url = result.secure_url;
         req.file.public_id = result.public_id;
-        req.file.cloudinary_result = result;
-        
-        // ✅ Remove buffer to free memory
         delete req.file.buffer;
         
-        console.log('[Upload] ✅ Upload complete:', req.file.path);
+        console.log('[Upload] ✅ Complete:', req.file.path);
         next();
-        
       } catch (error) {
-        console.error('[Upload] ❌ Cloudinary error caught in main handler:');
-        console.error('  Message:', error.message);
-        console.error('  HTTP Code:', error.http_code);
-        console.error('  Stack:', error.stack);
-        
-        // ✅ Send detailed error response
-        return res.status(500).json({
+        console.error('[Upload] ❌ Error:', error.message);
+        res.status(500).json({
           success: false,
           error: 'Failed to upload file to cloud storage',
           details: error.message,
@@ -186,37 +128,13 @@ const upload = (fieldName = 'siwesForm') => {
   };
 };
 
-// ✅ Error handler middleware
-export const handleUploadError = (err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    console.error('[Upload] Multer error:', err.message);
-    return res.status(400).json({
-      success: false,
-      error: err.message,
-      code: err.code
-    });
-  }
-  
-  if (err) {
-    console.error('[Upload] Upload error:', err.message);
-    return res.status(400).json({
-      success: false,
-      error: err.message
-    });
-  }
-  
-  next();
-};
-
 // Log configuration
 console.log('='.repeat(60));
-console.log('[Upload] 📋 Upload middleware configured:');
+console.log('[Upload] Upload middleware configured:');
 console.log(`  Storage: ☁️ Cloudinary (direct upload)`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
-console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
-console.log('  Cloud Name:', cloudinary.config().cloud_name);
-console.log('  API Key:', cloudinary.config().api_key ? '✅ Set' : '❌ Missing');
+console.log(`  Upload Preset: innospace-unsigned`);
 console.log('='.repeat(60));
 
 export default upload;
