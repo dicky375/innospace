@@ -1,4 +1,4 @@
-// middleware/upload.js
+// src/middleware/upload.js
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { Readable } from 'stream';
@@ -47,7 +47,7 @@ const multerUpload = multer({
   }
 });
 
-// ✅ Direct upload to Cloudinary
+// ✅ Direct upload to Cloudinary with detailed error logging
 const uploadToCloudinary = (buffer, originalname, userId) => {
   return new Promise((resolve, reject) => {
     const ext = originalname.match(/\.[^.]+$/)?.[0] || '';
@@ -55,6 +55,8 @@ const uploadToCloudinary = (buffer, originalname, userId) => {
     const publicId = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
     
     console.log(`[Upload] Uploading to Cloudinary: ${publicId}`);
+    console.log(`[Upload] File size: ${buffer.length} bytes`);
+    console.log(`[Upload] Using upload preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
     
     const uploadStream = cloudinary.uploader.upload_stream(
       {
@@ -66,7 +68,10 @@ const uploadToCloudinary = (buffer, originalname, userId) => {
       },
       (error, result) => {
         if (error) {
-          console.error('[Upload] ❌ Cloudinary upload error:', error.message);
+          console.error('[Upload] ❌ Cloudinary upload error:');
+          console.error('  Message:', error.message);
+          console.error('  HTTP Code:', error.http_code);
+          console.error('  Error details:', JSON.stringify(error, null, 2));
           reject(error);
         } else {
           console.log('[Upload] ✅ Cloudinary upload successful:', result.secure_url);
@@ -78,6 +83,12 @@ const uploadToCloudinary = (buffer, originalname, userId) => {
     // Convert buffer to stream and pipe to Cloudinary
     const bufferStream = Readable.from(buffer);
     bufferStream.pipe(uploadStream);
+    
+    // ✅ Add error handler for the stream
+    bufferStream.on('error', (err) => {
+      console.error('[Upload] ❌ Stream error:', err);
+      reject(err);
+    });
   });
 };
 
@@ -101,6 +112,10 @@ const upload = (fieldName = 'siwesForm') => {
       }
       
       try {
+        console.log('[Upload] Processing file:', req.file.originalname);
+        console.log('[Upload] File size:', req.file.size, 'bytes');
+        console.log('[Upload] MIME type:', req.file.mimetype);
+        
         // ✅ Upload to Cloudinary
         const result = await uploadToCloudinary(
           req.file.buffer,
@@ -108,7 +123,7 @@ const upload = (fieldName = 'siwesForm') => {
           req.user?.id || 'anonymous'
         );
         
-        // ✅ Attach Cloudinary info to req.file (maintains compatibility)
+        // ✅ Attach Cloudinary info to req.file
         req.file.path = result.secure_url;
         req.file.filename = result.public_id;
         req.file.secure_url = result.secure_url;
@@ -123,10 +138,14 @@ const upload = (fieldName = 'siwesForm') => {
         
       } catch (error) {
         console.error('[Upload] ❌ Cloudinary error:', error);
+        console.error('[Upload] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+        
+        // ✅ Send detailed error response
         return res.status(500).json({
           success: false,
           error: 'Failed to upload file to cloud storage',
-          details: error.message
+          details: error.message,
+          http_code: error.http_code || null
         });
       }
     });
