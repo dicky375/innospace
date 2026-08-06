@@ -129,13 +129,46 @@ router.get('/my', authenticate, requireAffiliate, async (req, res) => {
     });
   }
 });
-
 // ===== GET REGISTRATION FILE (Admin/Affiliate) =====
-router.get('/file/:id', authenticate, async (req, res) => {
+router.get('/file/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Find the registration
+    // ✅ Check for token in Authorization header first, then query param
+    let token = null;
+    const authHeader = req.headers.authorization;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.query.token) {
+      token = req.query.token;
+    }
+
+    if (!token) {
+      console.log('[REG] ❌ No token provided');
+      return res.status(401).json({
+        success: false,
+        error: 'Access token is required',
+        code: 'TOKEN_MISSING'
+      });
+    }
+
+    // ✅ Verify the token
+    let decoded;
+    try {
+      const jwt = await import('jsonwebtoken');
+      decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
+      console.log('[REG] ✅ Token verified for user:', decoded.id, 'Role:', decoded.role);
+    } catch (err) {
+      console.log('[REG] ❌ Token verification failed:', err.message);
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired token',
+        code: 'INVALID_TOKEN'
+      });
+    }
+
+    // ✅ Find the registration
     const registration = await Registration.findByPk(id);
     
     if (!registration) {
@@ -145,15 +178,16 @@ router.get('/file/:id', authenticate, async (req, res) => {
       });
     }
 
-    // Check permissions: admin or the affiliate who created it
-    if (req.user.role !== 'admin' && registration.affiliateId !== req.user.id) {
+    // ✅ Check permissions: admin or the affiliate who created it
+    if (decoded.role !== 'admin' && registration.affiliateId !== decoded.id) {
+      console.log('[REG] ❌ Access denied. User role:', decoded.role, 'Affiliate ID:', registration.affiliateId);
       return res.status(403).json({
         success: false,
         error: 'Access denied'
       });
     }
 
-    // Check if file exists
+    // ✅ Check if file exists
     if (!registration.siwesFormPath) {
       return res.status(404).json({
         success: false,
@@ -161,19 +195,19 @@ router.get('/file/:id', authenticate, async (req, res) => {
       });
     }
 
+    console.log('[REG] ✅ Redirecting to file:', registration.siwesFormPath);
+    
     // ✅ Redirect to the Uploadcare CDN URL
-    // The URL is already stored in siwesFormPath
     return res.redirect(registration.siwesFormPath);
 
   } catch (err) {
-    console.error('[REG] File view error:', err);
+    console.error('[REG] ❌ File view error:', err);
     res.status(500).json({
       success: false,
       error: err.message || 'Failed to retrieve file'
     });
   }
 });
-
 // ===== GET AFFILIATE STATS =====
 router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   try {
