@@ -2,7 +2,6 @@
 import multer from 'multer';
 import axios from 'axios';
 import FormData from 'form-data';
-import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 
@@ -14,7 +13,6 @@ const API_SECRET = 'ZkQQXurB1IHBQEC-Bm0wHXyF7Xg';
 console.log('[Upload] 🔧 Cloudinary configured:');
 console.log('  Cloud Name:', CLOUD_NAME);
 console.log('  API Key:', API_KEY ? '✅ Set' : '❌ Missing');
-console.log('  API Secret:', API_SECRET ? '✅ Set' : '❌ Missing');
 
 // Create local uploads directory as fallback
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -22,7 +20,7 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ✅ Use memory storage (no disk write)
+// ✅ Use memory storage
 const storage = multer.memoryStorage();
 
 // ✅ File filter
@@ -49,29 +47,20 @@ const multerUpload = multer({
   }
 });
 
-// ✅ Upload to Cloudinary using axios (REST API)
+// ✅ Upload to Cloudinary using axios with upload preset (NO SIGNATURE)
 const uploadToCloudinary = (buffer, originalname, userId) => {
   return new Promise(async (resolve, reject) => {
     try {
       const baseName = originalname.replace(/\.[^.]+$/, '');
-      const timestamp = Math.floor(Date.now() / 1000);
-      const publicId = `${userId}-${timestamp}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
+      const publicId = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
       
       console.log(`[Upload] 📤 Uploading to Cloudinary:`, {
         publicId,
         size: buffer.length,
-        timestamp
+        preset: 'innospace-unsigned'
       });
 
-      // ✅ Generate signature
-      const signature = crypto
-        .createHash('sha256')
-        .update(`folder=innospace/siwes-forms&public_id=${publicId}&timestamp=${timestamp}${API_SECRET}`)
-        .digest('hex');
-
-      console.log('[Upload] 🔑 Signature generated');
-
-      // ✅ Create form data
+      // ✅ Create form data with upload preset (NO SIGNATURE NEEDED)
       const formData = new FormData();
       formData.append('file', buffer, {
         filename: originalname,
@@ -80,12 +69,11 @@ const uploadToCloudinary = (buffer, originalname, userId) => {
                      originalname.endsWith('.doc') ? 'application/msword' :
                      'application/octet-stream'
       });
+      // ✅ Use the upload preset that worked in your direct test
+      formData.append('upload_preset', 'innospace-unsigned');
       formData.append('public_id', publicId);
       formData.append('folder', 'innospace/siwes-forms');
       formData.append('resource_type', 'auto');
-      formData.append('api_key', API_KEY);
-      formData.append('timestamp', timestamp);
-      formData.append('signature', signature);
       formData.append('allowed_formats', 'pdf,doc,docx,jpg,jpeg,png');
 
       const url = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
@@ -165,7 +153,7 @@ const upload = (fieldName = 'siwesForm') => {
           success: false,
           error: 'Failed to upload file to cloud storage',
           details: error.message,
-          http_code: error.http_code || 500
+          http_code: 500
         });
       }
     });
@@ -197,9 +185,10 @@ export const handleUploadError = (err, req, res, next) => {
 // Log configuration
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Cloudinary (axios REST API)`);
+console.log(`  Storage: ☁️ Cloudinary (axios + upload preset)`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
+console.log(`  Upload Preset: innospace-unsigned`);
 console.log('='.repeat(60));
 
 export default upload;
