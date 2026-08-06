@@ -19,7 +19,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 const client = new UploadClient({
   publicKey: UPLOADCARE_PUBLIC_KEY,
-  store: ture, // Store files permanently
+  store: true, // Store files permanently
 })
 // ✅ Use memory storage
 const storage = multer.memoryStorage();
