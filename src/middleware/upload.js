@@ -60,7 +60,11 @@ const uploadToUploadcare = (buffer, originalname) => {
       // Upload to Uploadcare
       const result = await client.uploadFile(buffer, {
         fileName: originalname,
-        store: 'auto'
+        store: 'auto',
+        metadata: {
+          userId: userId || 'anonymous',
+          uploadTime: new Date().toISOString()
+        }
       });
       
       console.log('[Upload] ✅ Upload successful:');
