@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
 import FormData from 'form-data';
+import {UploadClient} from '@uploadcare/upload-client';
 
 // ✅ Uploadcare configuration
 const UPLOADCARE_PUBLIC_KEY = process.env.UPLOADCARE_PUBLIC_KEY;
@@ -16,7 +17,10 @@ const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
-
+const client = new UploadClient({
+  publicKey: UPLOADCARE_PUBLIC_KEY,
+  store: ture, // Store files permanently
+})
 // ✅ Use memory storage
 const storage = multer.memoryStorage();
 
