@@ -67,6 +67,13 @@ const uploadToUploadcare = (buffer, originalname, userId) => {
           uploadTime: new Date().toISOString()
         }
       });
+
+      const fileUrl = `${result.cdnUrl}${originalname}`;
+      req.file.path = fileUrl;
+      req.file.secure_url = fileUrl;
+      req.file.filename = result.uuid;
+      req.file.uuid = result.uuid;
+      req.file.uploadcare_result = result;
       
       console.log('[Upload] ✅ Upload successful:');
       console.log('  UUID:', result.uuid);
