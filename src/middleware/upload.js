@@ -17,9 +17,15 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // ✅ Initialize Uploadcare client
-const client = new UploadClient({
-  publicKey: UPLOADCARE_PUBLIC_KEY,
-});
+let client;
+try {
+  client = new UploadClient({
+    publicKey: UPLOADCARE_PUBLIC_KEY,
+  });
+  console.log('[Upload] ✅ Uploadcare client initialized');
+} catch (err) {
+  console.error('[Upload] ❌ Failed to initialize Uploadcare client:', err.message);
+}
 
 // ✅ Use memory storage
 const storage = multer.memoryStorage();
@@ -48,16 +54,21 @@ const multerUpload = multer({
   }
 });
 
-// ✅ Upload to Uploadcare - FIXED: No req parameter needed
-const uploadToUploadcare = (buffer, originalname) => {
+// ✅ Upload to Uploadcare with better error handling
+const uploadToUploadcare = (buffer, originalname, userId = 'anonymous') => {
   return new Promise(async (resolve, reject) => {
     try {
+      if (!client) {
+        throw new Error('Uploadcare client not initialized. Check your API key.');
+      }
+
       console.log(`[Upload] 📤 Uploading to Uploadcare:`, {
         fileName: originalname,
-        size: buffer.length
+        size: buffer.length,
+        userId
       });
       
-      // Upload to Uploadcare
+      // ✅ Upload to Uploadcare with store: 'auto'
       const result = await client.uploadFile(buffer, {
         fileName: originalname,
         store: 'auto',
@@ -71,12 +82,17 @@ const uploadToUploadcare = (buffer, originalname) => {
       console.log('  UUID:', result.uuid);
       console.log('  CDN URL:', result.cdnUrl);
       
+      // ✅ Construct full URL with filename
+      const fullUrl = `${result.cdnUrl}${originalname}`;
+      result.fullUrl = fullUrl;
+      
       resolve(result);
       
     } catch (error) {
       console.error('[Upload] ❌ Uploadcare error:');
       console.error('  Message:', error.message);
       console.error('  Response:', error.response?.data);
+      console.error('  Stack:', error.stack);
       reject(error);
     }
   });
@@ -106,16 +122,20 @@ const upload = (fieldName = 'siwesForm') => {
         console.log('[Upload] File size:', req.file.size, 'bytes');
         console.log('[Upload] MIME type:', req.file.mimetype);
         
-        // ✅ Upload to Uploadcare - only pass buffer and originalname
+        // ✅ Get userId from req.user (with fallback)
+        const userId = req.user?.id || 'anonymous';
+        console.log('[Upload] User ID for upload:', userId);
+        
+        // ✅ Upload to Uploadcare
         const result = await uploadToUploadcare(
           req.file.buffer,
-          req.file.originalname
+          req.file.originalname,
+          userId
         );
         
         // ✅ Attach Uploadcare info to req.file
-        const fileUrl = `${result.cdnUrl}${req.file.originalname}`;
-        req.file.path = fileUrl;
-        req.file.secure_url = fileUrl;
+        req.file.path = result.fullUrl;
+        req.file.secure_url = result.fullUrl;
         req.file.filename = result.uuid;
         req.file.uuid = result.uuid;
         req.file.uploadcare_result = result;
@@ -128,6 +148,7 @@ const upload = (fieldName = 'siwesForm') => {
         
       } catch (error) {
         console.error('[Upload] ❌ Error:', error.message);
+        console.error('[Upload] Stack:', error.stack);
         
         // ✅ Send detailed error response
         return res.status(500).json({
@@ -168,6 +189,7 @@ console.log('[Upload] Upload middleware configured:');
 console.log(`  Storage: ☁️ Uploadcare`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
+console.log(`  Public Key: ${UPLOADCARE_PUBLIC_KEY ? '✅ Set' : '❌ Missing'}`);
 console.log('='.repeat(60));
 
 export default upload;
