@@ -130,6 +130,50 @@ router.get('/my', authenticate, requireAffiliate, async (req, res) => {
   }
 });
 
+// ===== GET REGISTRATION FILE (Admin/Affiliate) =====
+router.get('/file/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Find the registration
+    const registration = await Registration.findByPk(id);
+    
+    if (!registration) {
+      return res.status(404).json({
+        success: false,
+        error: 'Registration not found'
+      });
+    }
+
+    // Check permissions: admin or the affiliate who created it
+    if (req.user.role !== 'admin' && registration.affiliateId !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    // Check if file exists
+    if (!registration.siwesFormPath) {
+      return res.status(404).json({
+        success: false,
+        error: 'No file attached to this registration'
+      });
+    }
+
+    // ✅ Redirect to the Uploadcare CDN URL
+    // The URL is already stored in siwesFormPath
+    return res.redirect(registration.siwesFormPath);
+
+  } catch (err) {
+    console.error('[REG] File view error:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to retrieve file'
+    });
+  }
+});
+
 // ===== GET AFFILIATE STATS =====
 router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   try {
