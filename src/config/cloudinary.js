@@ -1,7 +1,6 @@
-// src/config/cloudinary.js
 import { v2 as cloudinary } from 'cloudinary';
 
-// ✅ HARDCODE FOR TESTING (remove after verifying env vars work)
+// ✅ HARDCODE Cloudinary credentials for testing
 cloudinary.config({
   cloud_name: 'dd4bxsolt',
   api_key: '631292745235875',
