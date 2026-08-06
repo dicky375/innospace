@@ -14,7 +14,7 @@ const router = Router();
 
 
 // ===== CREATE REGISTRATION (Affiliate) =====
-router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), async (req, res) => {
+router.post('/', authenticate, requireAffiliate, upload('siwesForm'), async (req, res) => {
   try {
         console.log('[REG] 📝 Registration request received');
     console.log('[REG] 📎 File uploaded:', req.file ? req.file.originalname : 'No file');
@@ -28,7 +28,8 @@ router.post('/', authenticate, requireAffiliate, upload.single('siwesForm'), asy
       department,
       regNumber,
       hodName,
-      supervisorName
+      supervisorName,
+      schoolName
     } = req.body;
 
     if (!programId || !studentName || !studentPhone || !course || !department || !regNumber) {
