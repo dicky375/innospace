@@ -5,6 +5,25 @@ import { Readable } from 'stream';
 import path from 'path';
 import fs from 'fs';
 
+// ============================================
+// ✅ FORCE CLOUDINARY CONFIGURATION HERE
+// This bypasses any issues with the config file
+// ============================================
+console.log('[Upload] 🔧 Configuring Cloudinary directly in upload middleware...');
+
+cloudinary.config({
+  cloud_name: 'dd4bxsolt',
+  api_key: '631292745235875',
+  api_secret: 'ZkQQXurB1IHBQEC-Bm0wHXyF7Xg',
+  secure: true
+});
+
+// ✅ Verify configuration
+console.log('[Upload] 📋 Cloudinary config verification:');
+console.log('  Cloud Name:', cloudinary.config().cloud_name || '❌ Missing');
+console.log('  API Key:', cloudinary.config().api_key ? '✅ Set' : '❌ Missing');
+console.log('  API Secret:', cloudinary.config().api_secret ? '✅ Set' : '❌ Missing');
+
 // Create local uploads directory as fallback
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -12,12 +31,14 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // ✅ Check if Cloudinary is properly configured
-const hasCloudinaryCredentials = !!(process.env.CLOUDINARY_CLOUD_NAME && 
-                                process.env.CLOUDINARY_API_KEY && 
-                                process.env.CLOUDINARY_API_SECRET);
+const hasCloudinaryCredentials = !!(cloudinary.config().cloud_name && 
+                                cloudinary.config().api_key && 
+                                cloudinary.config().api_secret);
 
 if (!hasCloudinaryCredentials) {
-  console.warn('[Upload] ⚠️ Missing Cloudinary credentials! Using local storage fallback.');
+  console.warn('[Upload] ⚠️ Cloudinary credentials missing after config! Using local storage fallback.');
+} else {
+  console.log('[Upload] ✅ Cloudinary credentials verified');
 }
 
 // ✅ Use memory storage (no disk write, direct to Cloudinary)
@@ -54,9 +75,16 @@ const uploadToCloudinary = (buffer, originalname, userId) => {
     const baseName = originalname.replace(/\.[^.]+$/, '');
     const publicId = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}-${baseName}`;
     
-    console.log(`[Upload] Uploading to Cloudinary: ${publicId}`);
-    console.log(`[Upload] File size: ${buffer.length} bytes`);
-    console.log(`[Upload] Using upload preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
+    console.log(`[Upload] 📤 Uploading to Cloudinary:`);
+    console.log(`  Public ID: ${publicId}`);
+    console.log(`  File size: ${buffer.length} bytes`);
+    console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
+    
+    // ✅ Log current Cloudinary config before upload
+    console.log(`[Upload] 🔑 Cloudinary config at upload time:`);
+    console.log(`  Cloud Name: ${cloudinary.config().cloud_name}`);
+    console.log(`  API Key: ${cloudinary.config().api_key ? '✅ Set' : '❌ Missing'}`);
+    console.log(`  API Secret: ${cloudinary.config().api_secret ? '✅ Set' : '❌ Missing'}`);
     
     const uploadStream = cloudinary.uploader.upload_stream(
       {
@@ -71,10 +99,13 @@ const uploadToCloudinary = (buffer, originalname, userId) => {
           console.error('[Upload] ❌ Cloudinary upload error:');
           console.error('  Message:', error.message);
           console.error('  HTTP Code:', error.http_code);
-          console.error('  Error details:', JSON.stringify(error, null, 2));
+          console.error('  Full error:', JSON.stringify(error, null, 2));
           reject(error);
         } else {
-          console.log('[Upload] ✅ Cloudinary upload successful:', result.secure_url);
+          console.log('[Upload] ✅ Cloudinary upload successful:');
+          console.log('  URL:', result.secure_url);
+          console.log('  Public ID:', result.public_id);
+          console.log('  Format:', result.format);
           resolve(result);
         }
       }
@@ -112,9 +143,10 @@ const upload = (fieldName = 'siwesForm') => {
       }
       
       try {
-        console.log('[Upload] Processing file:', req.file.originalname);
-        console.log('[Upload] File size:', req.file.size, 'bytes');
-        console.log('[Upload] MIME type:', req.file.mimetype);
+        console.log('[Upload] 📁 Processing file:');
+        console.log(`  Name: ${req.file.originalname}`);
+        console.log(`  Size: ${req.file.size} bytes`);
+        console.log(`  MIME type: ${req.file.mimetype}`);
         
         // ✅ Upload to Cloudinary
         const result = await uploadToCloudinary(
@@ -137,8 +169,10 @@ const upload = (fieldName = 'siwesForm') => {
         next();
         
       } catch (error) {
-        console.error('[Upload] ❌ Cloudinary error:', error);
-        console.error('[Upload] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+        console.error('[Upload] ❌ Cloudinary error caught in main handler:');
+        console.error('  Message:', error.message);
+        console.error('  HTTP Code:', error.http_code);
+        console.error('  Stack:', error.stack);
         
         // ✅ Send detailed error response
         return res.status(500).json({
@@ -176,11 +210,13 @@ export const handleUploadError = (err, req, res, next) => {
 
 // Log configuration
 console.log('='.repeat(60));
-console.log('[Upload] Upload middleware configured:');
+console.log('[Upload] 📋 Upload middleware configured:');
 console.log(`  Storage: ☁️ Cloudinary (direct upload)`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
 console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
+console.log('  Cloud Name:', cloudinary.config().cloud_name);
+console.log('  API Key:', cloudinary.config().api_key ? '✅ Set' : '❌ Missing');
 console.log('='.repeat(60));
 
 export default upload;
