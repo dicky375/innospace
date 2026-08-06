@@ -48,32 +48,20 @@ const multerUpload = multer({
   }
 });
 
-// ✅ Upload to Uploadcare
-const uploadToUploadcare = (buffer, originalname, userId) => {
+// ✅ Upload to Uploadcare - FIXED: No req parameter needed
+const uploadToUploadcare = (buffer, originalname) => {
   return new Promise(async (resolve, reject) => {
     try {
       console.log(`[Upload] 📤 Uploading to Uploadcare:`, {
         fileName: originalname,
-        size: buffer.length,
-        userId
+        size: buffer.length
       });
       
       // Upload to Uploadcare
       const result = await client.uploadFile(buffer, {
         fileName: originalname,
-        store: 'auto',
-        metadata: {
-          userId: userId || 'anonymous',
-          uploadTime: new Date().toISOString()
-        }
+        store: 'auto'
       });
-
-      const fileUrl = `${result.cdnUrl}${originalname}`;
-      req.file.path = fileUrl;
-      req.file.secure_url = fileUrl;
-      req.file.filename = result.uuid;
-      req.file.uuid = result.uuid;
-      req.file.uploadcare_result = result;
       
       console.log('[Upload] ✅ Upload successful:');
       console.log('  UUID:', result.uuid);
@@ -114,16 +102,16 @@ const upload = (fieldName = 'siwesForm') => {
         console.log('[Upload] File size:', req.file.size, 'bytes');
         console.log('[Upload] MIME type:', req.file.mimetype);
         
-        // ✅ Upload to Uploadcare
+        // ✅ Upload to Uploadcare - only pass buffer and originalname
         const result = await uploadToUploadcare(
           req.file.buffer,
-          req.file.originalname,
-          req.user?.id || 'anonymous'
+          req.file.originalname
         );
         
         // ✅ Attach Uploadcare info to req.file
-        req.file.path = result.cdnUrl;
-        req.file.secure_url = result.cdnUrl;
+        const fileUrl = `${result.cdnUrl}${req.file.originalname}`;
+        req.file.path = fileUrl;
+        req.file.secure_url = fileUrl;
         req.file.filename = result.uuid;
         req.file.uuid = result.uuid;
         req.file.uploadcare_result = result;
@@ -141,8 +129,7 @@ const upload = (fieldName = 'siwesForm') => {
         return res.status(500).json({
           success: false,
           error: 'Failed to upload file',
-          details: error.message,
-          http_code: 500
+          details: error.message
         });
       }
     });
