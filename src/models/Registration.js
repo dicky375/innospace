@@ -49,11 +49,11 @@ export default (sequelize) => {
       validate: { isEmail: true }
     },
     schoolName: {
-  type: DataTypes.STRING,
-  allowNull: true,
-  field: 'school_name',
-  comment: 'Name of the student\'s school/institution'
-},
+      type: DataTypes.STRING,
+      allowNull: true,
+      field: 'school_name',
+      comment: 'Name of the student\'s school/institution'
+    },
     course: {
       type: DataTypes.STRING,
       allowNull: false
@@ -77,6 +77,14 @@ export default (sequelize) => {
       type: DataTypes.STRING,
       allowNull: true,
       field: 'supervisor_name'
+    },
+    // ✅ ADD commissionRate FIELD
+    commissionRate: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+      field: 'commission_rate',
+      defaultValue: 10.00,
+      comment: 'Commission rate at registration time (stored for audit)'
     },
     siwesFormPath: {
       type: DataTypes.STRING,
@@ -148,6 +156,19 @@ export default (sequelize) => {
       { fields: ['program_id', 'status'] }
     ]
   });
+
+  // ✅ ADD ASSOCIATIONS HERE
+  Registration.associate = (models) => {
+    Registration.belongsTo(models.Program, {
+      foreignKey: 'programId',
+      as: 'program'
+    });
+    
+    Registration.belongsTo(models.User, {
+      foreignKey: 'affiliateId',
+      as: 'affiliate'
+    });
+  };
 
   return Registration;
 };
