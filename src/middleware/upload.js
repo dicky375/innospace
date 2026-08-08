@@ -2,8 +2,6 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import axios from 'axios';
-import FormData from 'form-data';
 import { UploadClient } from '@uploadcare/upload-client';
 
 // ✅ Uploadcare configuration
@@ -21,7 +19,7 @@ if (!fs.existsSync(uploadDir)) {
 // ✅ Initialize Uploadcare client with store: true
 const client = new UploadClient({
   publicKey: UPLOADCARE_PUBLIC_KEY,
-  store: true, // Store files permanently
+  store: true, // ✅ This stores files permanently
 });
 
 // ✅ Use memory storage
@@ -51,7 +49,7 @@ const multerUpload = multer({
   }
 });
 
-// ✅ Upload to Uploadcare via REST API
+// ✅ Upload to Uploadcare using the client (NOT REST API)
 const uploadToUploadcare = (buffer, originalname, userId) => {
   return new Promise(async (resolve, reject) => {
     try {
@@ -59,45 +57,36 @@ const uploadToUploadcare = (buffer, originalname, userId) => {
         throw new Error('Uploadcare public key is missing');
       }
 
-      console.log(`[Upload] 📤 Uploading to Uploadcare via REST API:`, {
+      console.log(`[Upload] 📤 Uploading to Uploadcare using client:`, {
         fileName: originalname,
         size: buffer.length,
-        userId
+        userId,
+        store: true // ✅ Confirming store is true
       });
 
-      const formData = new FormData();
-      formData.append('file', buffer, {
-        filename: originalname,
-        contentType: originalname.endsWith('.pdf') ? 'application/pdf' : 
-                     originalname.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
-                     originalname.endsWith('.doc') ? 'application/msword' :
-                     'application/octet-stream'
-      });
-      formData.append('UPLOADCARE_PUB_KEY', UPLOADCARE_PUBLIC_KEY);
-      formData.append('store', '1'); // ✅ Store permanently
-      formData.append('filename', originalname);
-
-      const response = await axios.post('https://upload.uploadcare.com/base/', formData, {
-        headers: {
-          ...formData.getHeaders()
-        },
-        timeout: 30000
+      // ✅ Use the client with store: true
+      const result = await client.uploadFile(buffer, {
+        fileName: originalname,
+        store: true, // ✅ Explicitly set store to true
+        metadata: {
+          userId: userId || 'anonymous',
+          uploadTime: new Date().toISOString()
+        }
       });
 
       console.log('[Upload] ✅ Upload successful:');
-      console.log('  UUID:', response.data.file);
-      console.log('  Response:', response.data);
+      console.log('  UUID:', result.uuid);
+      console.log('  CDN URL:', result.cdnUrl);
+      console.log('  Store status:', result.store || 'true');
 
-      const fileUuid = response.data.file;
-      const cdnUrl = `https://ucarecdn.com/${fileUuid}/`;
-      const fullUrl = `${cdnUrl}${originalname}`;
+      const fullUrl = `${result.cdnUrl}${originalname}`;
 
       resolve({
-        uuid: fileUuid,
-        cdnUrl: cdnUrl,
+        uuid: result.uuid,
+        cdnUrl: result.cdnUrl,
         fullUrl: fullUrl,
-        fileId: fileUuid,
-        store: '1'
+        fileId: result.uuid,
+        store: true
       });
 
     } catch (error) {
@@ -137,7 +126,7 @@ const upload = (fieldName = 'siwesForm') => {
         const userId = req.user?.id || 'anonymous';
         console.log('[Upload] User ID for upload:', userId);
         
-        // ✅ FIX: Remove store:true from here - it's already in the client config
+        // ✅ Upload to Uploadcare using the client
         const result = await uploadToUploadcare(
           req.file.buffer,
           req.file.originalname,
@@ -196,7 +185,7 @@ export const handleUploadError = (err, req, res, next) => {
 // Log configuration
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Uploadcare (REST API)`);
+console.log(`  Storage: ☁️ Uploadcare (client with store: true)`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
 console.log(`  Public Key: ${UPLOADCARE_PUBLIC_KEY ? '✅ Set' : '❌ Missing'}`);
