@@ -7,16 +7,14 @@ import { Op } from 'sequelize';
 import { authenticate, requireAffiliate, requireAdmin } from '../middleware/auth.js';
 import { Registration, Program, User } from '../config/db.js';
 import { getRedisClient, KEYS } from '../config/redis.js';
-import upload from '../middleware/upload.js'; 
+import upload from '../middleware/upload.js';
 
 const router = Router();
-
-
 
 // ===== CREATE REGISTRATION (Affiliate) =====
 router.post('/', authenticate, requireAffiliate, upload('siwesForm'), async (req, res) => {
   try {
-        console.log('[REG] 📝 Registration request received');
+    console.log('[REG] 📝 Registration request received');
     console.log('[REG] 📎 File uploaded:', req.file ? req.file.originalname : 'No file');
 
     const {
@@ -62,6 +60,11 @@ router.post('/', authenticate, requireAffiliate, upload('siwesForm'), async (req
       });
     }
 
+    // ✅ Get commission rate from program (default to 10%)
+    const commissionRate = program.type === 'siwes' 
+      ? 0 
+      : parseFloat(program.commissionRate || 10);
+
     const registration = await Registration.create({
       programId,
       affiliateId: req.user.id,
@@ -76,6 +79,7 @@ router.post('/', authenticate, requireAffiliate, upload('siwesForm'), async (req
       supervisorName: supervisorName || null,
       amount: program.price,
       status: 'pending_approval',
+      commissionRate: commissionRate, // ✅ Store the rate at registration time
       siwesFormPath: req.file ? req.file.path : null,
       siwesFormName: req.file ? req.file.originalname : null,
       siwesFormMimetype: req.file ? req.file.mimetype : null,
@@ -105,7 +109,7 @@ router.get('/my', authenticate, requireAffiliate, async (req, res) => {
         { 
           model: Program, 
           as: 'program',
-          attributes: ['id', 'title', 'type', 'price']
+          attributes: ['id', 'title', 'type', 'price', 'commissionRate']
         },
         { 
           model: User, 
@@ -129,6 +133,7 @@ router.get('/my', authenticate, requireAffiliate, async (req, res) => {
     });
   }
 });
+
 // ===== GET REGISTRATION FILE (Admin/Affiliate) =====
 router.get('/file/:id', authenticate, async (req, res) => {
   try {
@@ -137,7 +142,6 @@ router.get('/file/:id', authenticate, async (req, res) => {
     console.log('[REG] 📁 File request received for ID:', id);
     console.log('[REG] User:', req.user?.id, 'Role:', req.user?.role);
     
-    // ✅ Find the registration
     const registration = await Registration.findByPk(id);
     
     if (!registration) {
@@ -147,7 +151,7 @@ router.get('/file/:id', authenticate, async (req, res) => {
       });
     }
 
-    // ✅ Check permissions: admin or the affiliate who created it
+    // Check permissions: admin or the affiliate who created it
     if (req.user.role !== 'admin' && registration.affiliateId !== req.user.id) {
       console.log('[REG] ❌ Access denied. User role:', req.user.role, 'Affiliate ID:', registration.affiliateId);
       return res.status(403).json({
@@ -156,7 +160,6 @@ router.get('/file/:id', authenticate, async (req, res) => {
       });
     }
 
-    // ✅ Check if file exists
     if (!registration.siwesFormPath) {
       return res.status(404).json({
         success: false,
@@ -166,7 +169,6 @@ router.get('/file/:id', authenticate, async (req, res) => {
 
     console.log('[REG] ✅ Redirecting to file:', registration.siwesFormPath);
     
-    // ✅ Redirect to the Uploadcare CDN URL
     return res.redirect(registration.siwesFormPath);
 
   } catch (err) {
@@ -177,6 +179,7 @@ router.get('/file/:id', authenticate, async (req, res) => {
     });
   }
 });
+
 // ===== GET AFFILIATE STATS =====
 router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
   try {
@@ -208,6 +211,7 @@ router.get('/my/stats', authenticate, requireAffiliate, async (req, res) => {
     });
   }
 });
+
 // ===== GET ALL REGISTRATIONS (Admin) =====
 router.get('/all', authenticate, requireAdmin, async (req, res) => {
   try {
@@ -224,7 +228,7 @@ router.get('/all', authenticate, requireAdmin, async (req, res) => {
         { 
           model: Program, 
           as: 'program',
-          attributes: ['id', 'title', 'type', 'price']
+          attributes: ['id', 'title', 'type', 'price', 'commissionRate']
         },
         { 
           model: User, 
@@ -264,7 +268,7 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
         { 
           model: Program, 
           as: 'program',
-          attributes: ['id', 'title', 'type', 'price']
+          attributes: ['id', 'title', 'type', 'price', 'commissionRate']
         },
         { 
           model: User, 
@@ -295,13 +299,20 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-
 // ===== GET REGISTRATION BY ID =====
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     
-    const registration = await Registration.findByPk(id);
+    const registration = await Registration.findByPk(id, {
+      include: [
+        { 
+          model: Program, 
+          as: 'program',
+          attributes: ['id', 'title', 'type', 'price', 'commissionRate']
+        }
+      ]
+    });
 
     if (!registration) {
       return res.status(404).json({
@@ -344,7 +355,6 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Allow approval of pending_approval OR paid registrations
     if (registration.status !== 'pending_approval' && registration.status !== 'paid') {
       return res.status(400).json({
         success: false,
@@ -352,12 +362,15 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Calculate commission
-    const commission = registration.program?.type === 'siwes'
-      ? 0
-      : parseFloat(registration.amount) * 0.10;
+    // ✅ FIX: Calculate commission based on program's commission rate
+    let commission = 0;
+    if (registration.program?.type !== 'siwes') {
+      const rate = registration.program?.commissionRate 
+        ? parseFloat(registration.program.commissionRate) 
+        : 10;
+      commission = parseFloat(registration.amount) * (rate / 100);
+    }
 
-    // Update status only if it's pending
     const updateData = {
       approvedBy: req.user.id,
       approvedAt: new Date(),
@@ -555,7 +568,6 @@ router.post('/credit-all', authenticate, requireAdmin, async (req, res) => {
 // ===== MARK REGISTRATION AS PAID (Internal - called by payment service) =====
 router.patch('/:id/mark-paid', async (req, res) => {
   try {
-    // Verify service secret for security
     const serviceSecret = req.headers['x-service-secret'];
     if (!serviceSecret || serviceSecret !== process.env.INTERNAL_SERVICE_SECRET) {
       return res.status(401).json({
@@ -575,7 +587,6 @@ router.patch('/:id/mark-paid', async (req, res) => {
       });
     }
 
-    // Only allow marking as paid if status is 'approved' or 'pending_approval'
     if (registration.status !== 'approved' && registration.status !== 'pending_approval') {
       return res.status(400).json({
         success: false,
