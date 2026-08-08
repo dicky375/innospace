@@ -5,8 +5,8 @@ import FormData from 'form-data';
 import path from 'path';
 import fs from 'fs';
 
-const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dd4bxsolt';
-const UPLOAD_PRESET = process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned';
+const CLOUD_NAME = 'dd4bxsolt';
+const UPLOAD_PRESET = 'innospace-unsigned';
 
 console.log('[Upload] 🔧 Cloudinary configured:');
 console.log('  Cloud Name:', CLOUD_NAME);
@@ -39,13 +39,17 @@ const multerUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ✅ Upload to Cloudinary using the SAME approach as the working direct test
+// ✅ Upload to Cloudinary - EXACT MATCH to working curl command
 const uploadToCloudinary = (buffer, originalname) => {
   return new Promise(async (resolve, reject) => {
     try {
       console.log(`[Upload] 📤 Uploading to Cloudinary: ${originalname}`);
-      
+      console.log(`[Upload] Using preset: ${UPLOAD_PRESET}`);
+      console.log(`[Upload] File size: ${buffer.length} bytes`);
+
       const formData = new FormData();
+      
+      // ✅ Append file as buffer with filename
       formData.append('file', buffer, {
         filename: originalname,
         contentType: originalname.endsWith('.pdf') ? 'application/pdf' : 
@@ -53,8 +57,13 @@ const uploadToCloudinary = (buffer, originalname) => {
                      originalname.endsWith('.doc') ? 'application/msword' :
                      'application/octet-stream'
       });
+      
+      // ✅ These are the exact parameters from the working curl
       formData.append('upload_preset', UPLOAD_PRESET);
       formData.append('folder', 'innospace/siwes-forms');
+
+      // ✅ Log the request details
+      console.log('[Upload] Sending to Cloudinary...');
 
       const response = await axios.post(
         `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`,
@@ -70,7 +79,10 @@ const uploadToCloudinary = (buffer, originalname) => {
       console.log('[Upload] ✅ Cloudinary upload successful:', response.data.secure_url);
       resolve(response.data);
     } catch (error) {
-      console.error('[Upload] ❌ Cloudinary error:', error.response?.data?.error?.message || error.message);
+      console.error('[Upload] ❌ Cloudinary error details:');
+      console.error('  Message:', error.message);
+      console.error('  Response data:', error.response?.data);
+      console.error('  Status:', error.response?.status);
       reject(error);
     }
   });
@@ -98,6 +110,7 @@ const upload = (fieldName = 'siwesForm') => {
       try {
         console.log('[Upload] 📁 Processing file:', req.file.originalname);
         console.log('[Upload] File size:', req.file.size, 'bytes');
+        console.log('[Upload] MIME type:', req.file.mimetype);
         
         const result = await uploadToCloudinary(
           req.file.buffer,
@@ -125,7 +138,7 @@ const upload = (fieldName = 'siwesForm') => {
 
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Cloudinary (axios)`);
+console.log(`  Storage: ☁️ Cloudinary`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
 console.log(`  Upload Preset: ${UPLOAD_PRESET}`);
