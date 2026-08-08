@@ -1,11 +1,12 @@
+// src/routes/program.routes.js
 import { Router } from 'express';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
-import { Program, sequelize } from '../config/db.js';
+import { Program } from '../config/db.js';
 import { Op } from 'sequelize';
 
 const router = Router();
 
-// ===== GET ALL PROGRAMS (Public) =====
+// ===== GET ALL PROGRAMS (Public/Affiliate) =====
 router.get('/', async (req, res) => {
   try {
     const { isActive, type, search } = req.query;
@@ -23,6 +24,20 @@ router.get('/', async (req, res) => {
 
     const programs = await Program.findAll({
       where,
+      attributes: [
+        'id', 
+        'title', 
+        'description', 
+        'price', 
+        'durationMonths', 
+        'type', 
+        'category',
+        'isActive',
+        'currency',
+        'commissionRate',
+        'createdAt',
+        'updatedAt'
+      ],
       order: [['createdAt', 'DESC']]
     });
     
@@ -40,10 +55,25 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ===== GET PROGRAM BY ID (Public) =====
+// ===== GET PROGRAM BY ID (Public/Affiliate) =====
 router.get('/:id', async (req, res) => {
   try {
-    const program = await Program.findByPk(req.params.id);
+    const program = await Program.findByPk(req.params.id, {
+      attributes: [
+        'id', 
+        'title', 
+        'description', 
+        'price', 
+        'durationMonths', 
+        'type', 
+        'category',
+        'isActive',
+        'currency',
+        'commissionRate',
+        'createdAt',
+        'updatedAt'
+      ]
+    });
     
     if (!program) {
       return res.status(404).json({ 
@@ -75,10 +105,10 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
       durationMonths, 
       type, 
       category,
-      currency 
+      currency,
+      commissionRate
     } = req.body;
 
-    // Validate required fields - ✅ Removed monthlyFee
     if (!title) {
       return res.status(400).json({ 
         success: false,
@@ -98,7 +128,6 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Create program - ✅ Removed monthlyFee and affiliateCommission
     const program = await Program.create({
       title,
       description: description || null,
@@ -107,6 +136,7 @@ router.post('/', authenticate, requireAdmin, async (req, res) => {
       type: type || 'internship',
       category: category || null,
       currency: currency || 'NGN',
+      commissionRate: commissionRate || 10.00,
       createdBy: req.user.id,
       isActive: true
     });
@@ -137,7 +167,8 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
       type, 
       category,
       isActive,
-      currency 
+      currency,
+      commissionRate
     } = req.body;
 
     const program = await Program.findByPk(id);
@@ -149,7 +180,6 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    // Build update object - ✅ Removed monthlyFee and affiliateCommission
     const updates = {};
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
@@ -159,6 +189,7 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
     if (category !== undefined) updates.category = category;
     if (isActive !== undefined) updates.isActive = isActive;
     if (currency !== undefined) updates.currency = currency;
+    if (commissionRate !== undefined) updates.commissionRate = commissionRate;
 
     await program.update(updates);
 
@@ -172,6 +203,48 @@ router.patch('/:id', authenticate, requireAdmin, async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: 'Failed to update program' 
+    });
+  }
+});
+
+// ===== UPDATE COMMISSION RATE (Admin only) =====
+router.patch('/:id/commission', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { commissionRate } = req.body;
+
+    if (commissionRate === undefined || commissionRate < 0 || commissionRate > 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'Commission rate must be between 0 and 100'
+      });
+    }
+
+    const program = await Program.findByPk(id);
+    if (!program) {
+      return res.status(404).json({
+        success: false,
+        error: 'Program not found'
+      });
+    }
+
+    await program.update({ commissionRate });
+    
+    res.json({
+      success: true,
+      message: 'Commission rate updated successfully',
+      program: {
+        id: program.id,
+        title: program.title,
+        commissionRate: program.commissionRate,
+        price: program.price
+      }
+    });
+  } catch (err) {
+    console.error('[Program] Update commission error:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update commission rate'
     });
   }
 });
@@ -259,44 +332,4 @@ router.get('/stats/summary', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// Update program with commission rate
-router.patch('/:id/commission', authenticate, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { commissionRate } = req.body;
-
-    if (commissionRate === undefined || commissionRate < 0 || commissionRate > 100) {
-      return res.status(400).json({
-        success: false,
-        error: 'Commission rate must be between 0 and 100'
-      });
-    }
-
-    const program = await Program.findByPk(id);
-    if (!program) {
-      return res.status(404).json({
-        success: false,
-        error: 'Program not found'
-      });
-    }
-
-    await program.update({ commissionRate });
-    
-    res.json({
-      success: true,
-      message: 'Commission rate updated successfully',
-      program: {
-        id: program.id,
-        title: program.title,
-        commissionRate: program.commissionRate
-      }
-    });
-  } catch (err) {
-    console.error('[Program] Update commission error:', err);
-    res.status(500).json({
-      success: false,
-      error: err.message || 'Failed to update commission rate'
-    });
-  }
-});
 export default router;
