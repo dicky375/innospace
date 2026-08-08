@@ -266,7 +266,7 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
       where: { status: 'pending_approval' },
       include: [
         { 
-          model: Program, 
+          model: program, 
           as: 'program',
           attributes: ['id', 'title', 'type', 'price', 'commissionRate']
         },
@@ -313,7 +313,7 @@ router.get('/:id', authenticate, async (req, res) => {
     const registration = await Registration.findByPk(id, {
       include: [
         { 
-          model: Program, 
+          model: program, 
           as: 'program',
           attributes: ['id', 'title', 'type', 'price', 'commissionRate']
         }
