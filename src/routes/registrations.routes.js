@@ -320,7 +320,7 @@ router.get('/:id', authenticate, async (req, res) => {
     const registration = await Registration.findByPk(id, {
       include: [
         { 
-          model: program, 
+          model: Program, 
           as: 'program',
           attributes: ['id', 'title', 'type', 'price', 'commissionRate']
         }
