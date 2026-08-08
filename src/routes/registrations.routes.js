@@ -79,7 +79,7 @@ router.post('/', authenticate, requireAffiliate, upload('siwesForm'), async (req
       supervisorName: supervisorName || null,
       amount: program.price,
       status: 'pending_approval',
-      commissionRate: commissionRate, // ✅ Store the rate at registration time
+      commissionRate: commissionRate,
       siwesFormPath: req.file ? req.file.path : null,
       siwesFormName: req.file ? req.file.originalname : null,
       siwesFormMimetype: req.file ? req.file.mimetype : null,
@@ -369,6 +369,9 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
         ? parseFloat(registration.program.commissionRate) 
         : 10;
       commission = parseFloat(registration.amount) * (rate / 100);
+      console.log(`[REG] Commission calculation: amount=${registration.amount}, rate=${rate}%, commission=${commission}`);
+    } else {
+      console.log(`[REG] SIWES program - no commission`);
     }
 
     const updateData = {
@@ -383,7 +386,7 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
     
     await registration.update(updateData);
 
-    // ✅ CREDIT COMMISSION TO REDIS (affiliate balance)
+    // ✅ CREDIT COMMISSION TO REDIS
     if (commission > 0 && registration.affiliateId) {
       try {
         const redis = await getRedisClient();
