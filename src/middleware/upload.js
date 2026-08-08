@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
 import FormData from 'form-data';
-import {UploadClient} from '@uploadcare/upload-client';
+import { UploadClient } from '@uploadcare/upload-client';
 
 // ✅ Uploadcare configuration
 const UPLOADCARE_PUBLIC_KEY = process.env.UPLOADCARE_PUBLIC_KEY;
@@ -17,10 +17,13 @@ const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+// ✅ Initialize Uploadcare client with store: true
 const client = new UploadClient({
   publicKey: UPLOADCARE_PUBLIC_KEY,
   store: true, // Store files permanently
-})
+});
+
 // ✅ Use memory storage
 const storage = multer.memoryStorage();
 
@@ -134,7 +137,7 @@ const upload = (fieldName = 'siwesForm') => {
         const userId = req.user?.id || 'anonymous';
         console.log('[Upload] User ID for upload:', userId);
         
-        // ✅ Upload to Uploadcare via REST API
+        // ✅ FIX: Remove store:true from here - it's already in the client config
         const result = await uploadToUploadcare(
           req.file.buffer,
           req.file.originalname,
