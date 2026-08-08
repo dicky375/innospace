@@ -266,7 +266,7 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
       where: { status: 'pending_approval' },
       include: [
         { 
-          model: program, 
+          model: Program, 
           as: 'program',
           attributes: ['id', 'title', 'type', 'price', 'commissionRate']
         },
