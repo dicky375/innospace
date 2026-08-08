@@ -258,32 +258,39 @@ router.get('/all', authenticate, requireAdmin, async (req, res) => {
     });
   }
 });
-
 // ===== GET PENDING REGISTRATIONS (Admin) =====
 router.get('/pending', authenticate, requireAdmin, async (req, res) => {
   try {
+    console.log('[REG] Fetching pending registrations...');
+    
+    // ✅ First, get all pending registrations
     const registrations = await Registration.findAll({
       where: { status: 'pending_approval' },
-      include: [
-        { 
-          model: Program, 
-          as: 'program',
-          attributes: ['id', 'title', 'type', 'price', 'commissionRate']
-        },
-        { 
-          model: User, 
-          as: 'affiliate',
-          attributes: ['id', 'name', 'email']
-        }
-      ],
       order: [['createdAt', 'ASC']]
     });
 
-      // ✅ Log to verify data
-    console.log('[REG] Pending registrations found:', registrations.length);
-    registrations.forEach(r => {
-      console.log(`[REG] ${r.studentName}: Program=${r.program?.title}, Rate=${r.program?.commissionRate}`);
-    });
+    console.log(`[REG] Found ${registrations.length} pending registrations`);
+
+    // ✅ Manually fetch program and affiliate data
+    const registrationsWithData = await Promise.all(
+      registrations.map(async (registration) => {
+        // Fetch program
+        const programData = await Program.findByPk(registration.programId, {
+          attributes: ['id', 'title', 'type', 'price', 'commissionRate']
+        });
+        
+        // Fetch affiliate
+        const affiliateData = await User.findByPk(registration.affiliateId, {
+          attributes: ['id', 'name', 'email']
+        });
+        
+        return {
+          ...registration.toJSON(),
+          Program: programData ? programData.toJSON() : null,
+          affiliate: affiliateData ? affiliateData.toJSON() : null
+        };
+      })
+    );
 
     res.set({
       'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -293,8 +300,8 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
 
     res.json({
       success: true,
-      count: registrations.length,
-      registrations
+      count: registrationsWithData.length,
+      registrations: registrationsWithData
     });
   } catch (err) {
     console.error('[REG] Pending error:', err);
