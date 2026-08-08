@@ -36,6 +36,13 @@ export default (sequelize) => {
         max: 12
       }
     },
+    commissionRate: {
+  type: DataTypes.DECIMAL(5, 2),
+  defaultValue: 10.00,
+  allowNull: false,
+  field: 'commission_rate',
+  comment: 'Commission percentage for this program (e.g., 10.00 = 10%)'
+},
     type: {
       type: DataTypes.ENUM('internship', 'siwes'),
       allowNull: false,

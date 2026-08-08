@@ -259,4 +259,44 @@ router.get('/stats/summary', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// Update program with commission rate
+router.patch('/:id/commission', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { commissionRate } = req.body;
+
+    if (commissionRate === undefined || commissionRate < 0 || commissionRate > 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'Commission rate must be between 0 and 100'
+      });
+    }
+
+    const program = await Program.findByPk(id);
+    if (!program) {
+      return res.status(404).json({
+        success: false,
+        error: 'Program not found'
+      });
+    }
+
+    await program.update({ commissionRate });
+    
+    res.json({
+      success: true,
+      message: 'Commission rate updated successfully',
+      program: {
+        id: program.id,
+        title: program.title,
+        commissionRate: program.commissionRate
+      }
+    });
+  } catch (err) {
+    console.error('[Program] Update commission error:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update commission rate'
+    });
+  }
+});
 export default router;
