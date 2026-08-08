@@ -1,4 +1,3 @@
-// src/middleware/upload.js
 import multer from 'multer';
 import axios from 'axios';
 import FormData from 'form-data';
@@ -39,17 +38,14 @@ const multerUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ✅ Upload to Cloudinary - EXACT MATCH to working curl command
+// ✅ Upload to Cloudinary using axios (matches working curl)
 const uploadToCloudinary = (buffer, originalname) => {
   return new Promise(async (resolve, reject) => {
     try {
       console.log(`[Upload] 📤 Uploading to Cloudinary: ${originalname}`);
-      console.log(`[Upload] Using preset: ${UPLOAD_PRESET}`);
       console.log(`[Upload] File size: ${buffer.length} bytes`);
 
       const formData = new FormData();
-      
-      // ✅ Append file as buffer with filename
       formData.append('file', buffer, {
         filename: originalname,
         contentType: originalname.endsWith('.pdf') ? 'application/pdf' : 
@@ -57,13 +53,8 @@ const uploadToCloudinary = (buffer, originalname) => {
                      originalname.endsWith('.doc') ? 'application/msword' :
                      'application/octet-stream'
       });
-      
-      // ✅ These are the exact parameters from the working curl
       formData.append('upload_preset', UPLOAD_PRESET);
       formData.append('folder', 'innospace/siwes-forms');
-
-      // ✅ Log the request details
-      console.log('[Upload] Sending to Cloudinary...');
 
       const response = await axios.post(
         `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`,
@@ -79,16 +70,15 @@ const uploadToCloudinary = (buffer, originalname) => {
       console.log('[Upload] ✅ Cloudinary upload successful:', response.data.secure_url);
       resolve(response.data);
     } catch (error) {
-      console.error('[Upload] ❌ Cloudinary error details:');
-      console.error('  Message:', error.message);
-      console.error('  Response data:', error.response?.data);
-      console.error('  Status:', error.response?.status);
+      console.error('[Upload] ❌ Cloudinary error:');
+      console.error('  Message:', error.response?.data?.error?.message || error.message);
+      console.error('  Response:', error.response?.data);
       reject(error);
     }
   });
 };
 
-// ✅ Main upload middleware
+// ✅ Main upload middleware - returns a function
 const upload = (fieldName = 'siwesForm') => {
   return async (req, res, next) => {
     const multerMiddleware = multerUpload.single(fieldName);
@@ -110,7 +100,6 @@ const upload = (fieldName = 'siwesForm') => {
       try {
         console.log('[Upload] 📁 Processing file:', req.file.originalname);
         console.log('[Upload] File size:', req.file.size, 'bytes');
-        console.log('[Upload] MIME type:', req.file.mimetype);
         
         const result = await uploadToCloudinary(
           req.file.buffer,
@@ -138,7 +127,7 @@ const upload = (fieldName = 'siwesForm') => {
 
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Cloudinary`);
+console.log(`  Storage: ☁️ Cloudinary (axios)`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
 console.log(`  Upload Preset: ${UPLOAD_PRESET}`);
