@@ -279,6 +279,12 @@ router.get('/pending', authenticate, requireAdmin, async (req, res) => {
       order: [['createdAt', 'ASC']]
     });
 
+      // ✅ Log to verify data
+    console.log('[REG] Pending registrations found:', registrations.length);
+    registrations.forEach(r => {
+      console.log(`[REG] ${r.studentName}: Program=${r.program?.title}, Rate=${r.program?.commissionRate}`);
+    });
+
     res.set({
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Pragma': 'no-cache',
