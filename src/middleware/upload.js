@@ -1,14 +1,12 @@
 // src/middleware/upload.js
 import multer from 'multer';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import cloudinary from '../config/cloudinary.js';
 import path from 'path';
 import fs from 'fs';
-import { UploadClient } from '@uploadcare/upload-client';
 
-// ✅ Uploadcare configuration
-const UPLOADCARE_PUBLIC_KEY = process.env.UPLOADCARE_PUBLIC_KEY;
-
-console.log('[Upload] 🔧 Uploadcare configured:');
-console.log('  Public Key:', UPLOADCARE_PUBLIC_KEY ? '✅ Set' : '❌ Missing');
+console.log('[Upload] 🔧 Cloudinary configured:');
+console.log('  Cloud Name:', cloudinary.config().cloud_name);
 
 // Create local uploads directory as fallback
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -16,16 +14,23 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ✅ Initialize Uploadcare client with store: true
-const client = new UploadClient({
-  publicKey: UPLOADCARE_PUBLIC_KEY,
-  store: true, // ✅ This stores files permanently
+// ✅ Configure Cloudinary storage with upload preset
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'innospace/siwes-forms',
+    upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned',
+    allowed_formats: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+    resource_type: 'auto',
+    public_id: (req, file) => {
+      const unique = `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+      const name = `${req.user?.id || 'anonymous'}-${unique}-${file.originalname.split('.')[0]}`;
+      console.log(`[Upload] Generating public_id: ${name}`);
+      return name;
+    },
+  },
 });
 
-// ✅ Use memory storage
-const storage = multer.memoryStorage();
-
-// ✅ File filter
 const fileFilter = (req, file, cb) => {
   const allowed = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
   const ext = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
@@ -40,127 +45,12 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// ✅ Create multer upload instance
-const multerUpload = multer({
+const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
-  limits: { 
-    fileSize: 10 * 1024 * 1024 // 10MB
-  }
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ✅ Upload to Uploadcare using the client (NOT REST API)
-const uploadToUploadcare = (buffer, originalname, userId) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!UPLOADCARE_PUBLIC_KEY) {
-        throw new Error('Uploadcare public key is missing');
-      }
-
-      console.log(`[Upload] 📤 Uploading to Uploadcare using client:`, {
-        fileName: originalname,
-        size: buffer.length,
-        userId,
-        store: true // ✅ Confirming store is true
-      });
-
-      // ✅ Use the client with store: true
-      const result = await client.uploadFile(buffer, {
-        fileName: originalname,
-        store: true, // ✅ Explicitly set store to true
-        metadata: {
-          userId: userId || 'anonymous',
-          uploadTime: new Date().toISOString()
-        }
-      });
-
-      console.log('[Upload] ✅ Upload successful:');
-      console.log('  UUID:', result.uuid);
-      console.log('  CDN URL:', result.cdnUrl);
-      console.log('  Store status:', result.store || 'true');
-
-      const fullUrl = `${result.cdnUrl}${originalname}`;
-
-      resolve({
-        uuid: result.uuid,
-        cdnUrl: result.cdnUrl,
-        fullUrl: fullUrl,
-        fileId: result.uuid,
-        store: true
-      });
-
-    } catch (error) {
-      console.error('[Upload] ❌ Uploadcare error:');
-      console.error('  Message:', error.message);
-      console.error('  Response:', error.response?.data);
-      console.error('  Status:', error.response?.status);
-      reject(error);
-    }
-  });
-};
-
-// ✅ Main upload middleware
-const upload = (fieldName = 'siwesForm') => {
-  return async (req, res, next) => {
-    const multerMiddleware = multerUpload.single(fieldName);
-    
-    multerMiddleware(req, res, async (err) => {
-      if (err) {
-        console.error('[Upload] ❌ Multer error:', err.message);
-        return res.status(400).json({
-          success: false,
-          error: err.message
-        });
-      }
-      
-      if (!req.file) {
-        console.log('[Upload] No file uploaded');
-        return next();
-      }
-      
-      try {
-        console.log('[Upload] 📁 Processing file:', req.file.originalname);
-        console.log('[Upload] File size:', req.file.size, 'bytes');
-        console.log('[Upload] MIME type:', req.file.mimetype);
-        
-        const userId = req.user?.id || 'anonymous';
-        console.log('[Upload] User ID for upload:', userId);
-        
-        // ✅ Upload to Uploadcare using the client
-        const result = await uploadToUploadcare(
-          req.file.buffer,
-          req.file.originalname,
-          userId
-        );
-        
-        // ✅ Attach Uploadcare info to req.file
-        req.file.path = result.fullUrl;
-        req.file.secure_url = result.fullUrl;
-        req.file.filename = result.uuid;
-        req.file.uuid = result.uuid;
-        req.file.uploadcare_result = result;
-        
-        // ✅ Remove buffer to free memory
-        delete req.file.buffer;
-        
-        console.log('[Upload] ✅ Upload complete:', req.file.path);
-        next();
-        
-      } catch (error) {
-        console.error('[Upload] ❌ Error:', error.message);
-        console.error('[Upload] Stack:', error.stack);
-        
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to upload file',
-          details: error.message
-        });
-      }
-    });
-  };
-};
-
-// ✅ Error handler middleware
 export const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     console.error('[Upload] Multer error:', err.message);
@@ -182,13 +72,12 @@ export const handleUploadError = (err, req, res, next) => {
   next();
 };
 
-// Log configuration
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Uploadcare (client with store: true)`);
+console.log(`  Storage: ☁️ Cloudinary`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
-console.log(`  Public Key: ${UPLOADCARE_PUBLIC_KEY ? '✅ Set' : '❌ Missing'}`);
+console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
 console.log('='.repeat(60));
 
 export default upload;

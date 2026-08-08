@@ -1,7 +1,6 @@
 // src/config/cloudinary.js
 import { v2 as cloudinary } from 'cloudinary';
 
-// ✅ Configure Cloudinary with your credentials
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dd4bxsolt',
   api_key: process.env.CLOUDINARY_API_KEY || '631292745235875',
@@ -9,9 +8,8 @@ cloudinary.config({
   secure: true
 });
 
-console.log('[Cloudinary] ✅ Configured with:');
+console.log('[Cloudinary] ✅ Configured');
 console.log('  Cloud Name:', cloudinary.config().cloud_name);
 console.log('  API Key:', cloudinary.config().api_key ? '✅ Set' : '❌ Missing');
-console.log('  API Secret:', cloudinary.config().api_secret ? '✅ Set' : '❌ Missing');
 
 export default cloudinary;
