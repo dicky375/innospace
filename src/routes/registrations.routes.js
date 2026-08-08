@@ -358,7 +358,9 @@ router.get('/:id', authenticate, async (req, res) => {
 router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
   try {
     const registration = await Registration.findByPk(req.params.id, {
-      include: [{ model: Program, as: 'program' }]
+      include: [{ model: Program, as: 'program',
+        attributes:['id', 'title', 'type', 'price', 'commissionRate']
+       }]
     });
     
     if (!registration) {
@@ -390,7 +392,8 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
     const updateData = {
       approvedBy: req.user.id,
       approvedAt: new Date(),
-      commissionEarned: commission
+      commissionEarned: commission,
+      commissionRate: registration.program?.commissionRate || 10
     };
     
     if (registration.status === 'pending_approval') {
