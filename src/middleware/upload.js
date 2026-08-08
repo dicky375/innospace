@@ -8,13 +8,11 @@ import fs from 'fs';
 console.log('[Upload] 🔧 Cloudinary configured:');
 console.log('  Cloud Name:', cloudinary.config().cloud_name);
 
-// Create local uploads directory as fallback
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// ✅ Configure Cloudinary storage with upload preset
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -45,12 +43,17 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// ✅ Create multer instance with single file upload
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
+// ✅ Export the multer instance directly
+export default upload;
+
+// ✅ Export error handler
 export const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     console.error('[Upload] Multer error:', err.message);
@@ -79,5 +82,3 @@ console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
 console.log(`  Upload Preset: ${process.env.CLOUDINARY_UPLOAD_PRESET || 'innospace-unsigned'}`);
 console.log('='.repeat(60));
-
-export default upload;
