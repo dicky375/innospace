@@ -50,12 +50,26 @@ async function processSuccessfulPayment(reference, metadata, amount) {
 
     // Update registration
     const registration = await Registration.findByPk(metadata.registrationId);
-    if (registration && registration.status === 'approved') {
-      await registration.update({
-        status: 'paid',
-        paystackRef: reference
-      });
-      console.log(`[PAY] Registration ${metadata.registrationId} marked as paid`);
+    if (registration) {
+      const updateData = {
+        paystackRef: reference,
+        paystackData: {
+          amount: amount,
+          reference: reference,
+          metadata: metadata
+        }
+      };
+
+      // If already approved by admin, mark as paid
+      // If pending, keep as pending (admin still needs to approve)
+      if (registration.status === 'approved') {
+        updateData.status = 'paid';
+        console.log(`[PAY] Registration ${metadata.registrationId} marked as paid`);
+      } else {
+        console.log(`[PAY] Registration ${metadata.registrationId} is ${registration.status} - keeping status`);
+      }
+
+      await registration.update(updateData);
     }
 
     console.log(`✅ Payment processed: ₦${amount} | Commission: ₦${commission}`);
@@ -63,6 +77,55 @@ async function processSuccessfulPayment(reference, metadata, amount) {
     console.error('[PAY] Payment processing failed:', err.message);
   }
 }
+
+// ===== PAYSTACK WEBHOOK =====
+router.post('/webhook', async (req, res) => {
+  try {
+    // ✅ Verify webhook signature
+    const hash = crypto
+      .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    if (hash !== req.headers['x-paystack-signature']) {
+      console.log('[Webhook] Invalid signature');
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+
+    const event = req.body;
+    console.log('[Webhook] Event received:', event.event);
+
+    // ✅ Handle successful payment
+    if (event.event === 'charge.success') {
+      const { reference, metadata, amount } = event.data;
+      
+      console.log('[Webhook] Processing payment:', {
+        reference,
+        amount: amount / 100,
+        metadata
+      });
+
+      // Process the payment
+      await processSuccessfulPayment(reference, metadata, amount / 100);
+
+      return res.status(200).json({ success: true });
+    }
+
+    // ✅ Handle other events
+    if (event.event === 'charge.failed') {
+      console.log('[Webhook] Payment failed:', event.data.reference);
+      await Transaction.update(
+        { paystackStatus: 'failed' },
+        { where: { paystackRef: event.data.reference } }
+      );
+    }
+
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[Webhook] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ===== INITIALIZE PAYMENT =====
 router.post('/initialize', authenticate, requireAffiliate, async (req, res) => {
@@ -81,10 +144,11 @@ router.post('/initialize', authenticate, requireAffiliate, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Registration not found' });
     }
 
-    if (registration.status !== 'approved') {
+    // ✅ Allow payment for pending_approval or approved registrations
+    if (registration.status !== 'pending_approval' && registration.status !== 'approved') {
       return res.status(400).json({
         success: false,
-        error: `Registration must be approved before payment. Current status: ${registration.status}`
+        error: `Registration must be pending_approval or approved. Current status: ${registration.status}`
       });
     }
 
@@ -113,7 +177,7 @@ router.post('/initialize', authenticate, requireAffiliate, async (req, res) => {
           registrationId,
           affiliateId: req.user.id
         },
-        callback_url: process.env.PAYSTACK_CALLBACK_URL || 'http://localhost:5173/payment/verify'
+        callback_url: process.env.PAYSTACK_CALLBACK_URL || 'https://innospace-connect.vercel.app/payment/verify'
       },
       {
         headers: {
@@ -232,6 +296,5 @@ router.get('/transactions/all', authenticate, requireAdmin, async (req, res) => 
     res.status(500).json({ success: false, error: 'Failed to fetch transactions' });
   }
 });
-
 
 export default router;
