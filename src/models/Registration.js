@@ -139,6 +139,12 @@ export default (sequelize) => {
       type: DataTypes.STRING,
       field: 'paystack_ref',
       allowNull: true
+    },
+    paystackData: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      field: 'paystack_data',
+      comment: 'Full Paystack webhook data'
     }
   }, {
     tableName: 'registrations',

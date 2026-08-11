@@ -358,9 +358,7 @@ router.get('/:id', authenticate, async (req, res) => {
 router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
   try {
     const registration = await Registration.findByPk(req.params.id, {
-      include: [{ model: Program, as: 'program',
-        attributes:['id', 'title', 'type', 'price', 'commissionRate']
-       }]
+      include: [{ model: Program, as: 'program' }]
     });
     
     if (!registration) {
@@ -370,64 +368,33 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
       });
     }
 
-    if (registration.status !== 'pending_approval' && registration.status !== 'paid') {
+    if (registration.status !== 'pending_approval') {
       return res.status(400).json({
         success: false,
         error: `Cannot approve - status is ${registration.status}`
       });
     }
 
-    // ✅ FIX: Calculate commission based on program's commission rate
+    // ✅ Calculate commission (DO NOT credit yet)
     let commission = 0;
     if (registration.program?.type !== 'siwes') {
-      const rate = registration.program?.commissionRate 
-        ? parseFloat(registration.program.commissionRate) 
-        : 10;
+      const rate = registration.program?.commissionRate || 10;
       commission = parseFloat(registration.amount) * (rate / 100);
-      console.log(`[REG] Commission calculation: amount=${registration.amount}, rate=${rate}%, commission=${commission}`);
-    } else {
-      console.log(`[REG] SIWES program - no commission`);
     }
 
-    const updateData = {
+    // ✅ Update to approved (commission calculated but NOT credited)
+    await registration.update({
+      status: 'approved',
       approvedBy: req.user.id,
       approvedAt: new Date(),
-      commissionEarned: commission,
-      commissionRate: registration.program?.commissionRate || 10
-    };
-    
-    if (registration.status === 'pending_approval') {
-      updateData.status = 'approved';
-    }
-    
-    await registration.update(updateData);
+      commissionEarned: commission
+    });
 
-    // ✅ CREDIT COMMISSION TO REDIS
-    if (commission > 0 && registration.affiliateId) {
-      try {
-        const redis = await getRedisClient();
-        if (redis) {
-          await redis.incrbyfloat(
-            KEYS.affiliateBalance(registration.affiliateId),
-            commission
-          );
-          await redis.zincrby(
-            KEYS.leaderboard(),
-            commission,
-            registration.affiliateId
-          );
-          console.log(`[REG] ✅ Commission credited to Redis: ₦${commission} for affiliate ${registration.affiliateId}`);
-        } else {
-          console.warn('[REG] ⚠️ Redis not available, commission not credited');
-        }
-      } catch (redisErr) {
-        console.error('[REG] ❌ Redis credit failed:', redisErr.message);
-      }
-    }
+    // ✅ DO NOT credit commission here - wait for payment
 
     res.json({
       success: true,
-      message: 'Registration approved',
+      message: 'Registration approved - payment required to activate commission',
       registration,
       commissionAssigned: commission
     });
@@ -439,6 +406,7 @@ router.patch('/:id/approve', authenticate, requireAdmin, async (req, res) => {
     });
   }
 });
+
 
 // ===== REJECT REGISTRATION (Admin) =====
 router.patch('/:id/reject', authenticate, requireAdmin, async (req, res) => {
