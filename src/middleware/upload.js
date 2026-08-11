@@ -1,8 +1,10 @@
+
 import multer from 'multer';
 import axios from 'axios';
 import FormData from 'form-data';
 import path from 'path';
 import fs from 'fs';
+import { convertDocxToPdf } from '../utils/fileConverter.js'; // Option 1
 
 const CLOUD_NAME = 'dd4bxsolt';
 const UPLOAD_PRESET = 'innospace-unsigned';
@@ -38,47 +40,59 @@ const multerUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ✅ Upload to Cloudinary using axios (matches working curl)
-const uploadToCloudinary = (buffer, originalname) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      console.log(`[Upload] 📤 Uploading to Cloudinary: ${originalname}`);
-      console.log(`[Upload] File size: ${buffer.length} bytes`);
-
-      const formData = new FormData();
-      formData.append('file', buffer, {
-        filename: originalname,
-        contentType: originalname.endsWith('.pdf') ? 'application/pdf' : 
-                     originalname.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
-                     originalname.endsWith('.doc') ? 'application/msword' :
-                     'application/octet-stream'
-      });
-      formData.append('upload_preset', UPLOAD_PRESET);
-      formData.append('folder', 'innospace/siwes-forms');
-
-      const response = await axios.post(
-        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`,
-        formData,
-        {
-          headers: {
-            ...formData.getHeaders()
-          },
-          timeout: 30000
-        }
-      );
-
-      console.log('[Upload] ✅ Cloudinary upload successful:', response.data.secure_url);
-      resolve(response.data);
-    } catch (error) {
-      console.error('[Upload] ❌ Cloudinary error:');
-      console.error('  Message:', error.response?.data?.error?.message || error.message);
-      console.error('  Response:', error.response?.data);
-      reject(error);
+// ✅ Upload to Cloudinary with DOCX to PDF conversion
+const uploadToCloudinary = async (buffer, originalname) => {
+  try {
+    let fileBuffer = buffer;
+    let fileName = originalname;
+    let fileMimetype = originalname.endsWith('.docx') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf';
+    
+    // ✅ If DOCX, convert to PDF first
+    if (originalname.endsWith('.docx')) {
+      console.log('[Upload] 📄 Converting DOCX to PDF...');
+      const converted = await convertDocxToPdf(buffer, originalname);
+      fileBuffer = converted.buffer;
+      fileName = converted.filename;
+      fileMimetype = converted.mimetype;
+      console.log('[Upload] ✅ Conversion complete');
     }
-  });
+
+    console.log(`[Upload] 📤 Uploading to Cloudinary: ${fileName}`);
+    console.log(`[Upload] File size: ${fileBuffer.length} bytes`);
+
+    const formData = new FormData();
+    formData.append('file', fileBuffer, {
+      filename: fileName,
+      contentType: fileMimetype
+    });
+    formData.append('upload_preset', UPLOAD_PRESET);
+    formData.append('folder', 'innospace/siwes-forms');
+
+    const response = await axios.post(
+      `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`,
+      formData,
+      {
+        headers: {
+          ...formData.getHeaders()
+        },
+        timeout: 30000
+      }
+    );
+
+    // ✅ Store original name in metadata
+    response.data.originalName = originalname;
+    response.data.isConverted = originalname.endsWith('.docx');
+
+    console.log('[Upload] ✅ Cloudinary upload successful:', response.data.secure_url);
+    return response.data;
+  } catch (error) {
+    console.error('[Upload] ❌ Cloudinary error:');
+    console.error('  Message:', error.response?.data?.error?.message || error.message);
+    throw error;
+  }
 };
 
-// ✅ Main upload middleware - returns a function
+// ✅ Main upload middleware
 const upload = (fieldName = 'siwesForm') => {
   return async (req, res, next) => {
     const multerMiddleware = multerUpload.single(fieldName);
@@ -109,6 +123,8 @@ const upload = (fieldName = 'siwesForm') => {
         req.file.path = result.secure_url;
         req.file.secure_url = result.secure_url;
         req.file.filename = result.public_id;
+        req.file.originalName = result.originalName;
+        req.file.isConverted = result.isConverted;
         delete req.file.buffer;
         
         console.log('[Upload] ✅ Upload complete:', req.file.path);
@@ -127,7 +143,7 @@ const upload = (fieldName = 'siwesForm') => {
 
 console.log('='.repeat(60));
 console.log('[Upload] Upload middleware configured:');
-console.log(`  Storage: ☁️ Cloudinary (axios)`);
+console.log(`  Storage: ☁️ Cloudinary`);
 console.log(`  Max file size: 10MB`);
 console.log(`  Allowed formats: PDF, DOC, DOCX, JPG, PNG`);
 console.log(`  Upload Preset: ${UPLOAD_PRESET}`);
